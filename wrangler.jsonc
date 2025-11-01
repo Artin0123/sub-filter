@@ -9,7 +9,14 @@
 	"compatibility_date": "2025-11-01",
 	"observability": {
 		"enabled": true
-	}
+	},
+	"kv_namespaces": [
+		{
+			"binding": "KV_NAMESPACE",
+			// NOTE: For local dev, Miniflare will emulate KV; replace with real ID on deploy.
+			"id": "dev-kv-placeholder"
+		}
+	]
 	/**
 	 * Smart Placement
 	 * Docs: https://developers.cloudflare.com/workers/configuration/smart-placement/#smart-placement

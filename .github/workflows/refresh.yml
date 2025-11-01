@@ -1,0 +1,26 @@
+name: Refresh Subscription
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 * * * *"
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call refresh endpoint
+        env:
+          REFRESH_URL: ${{ secrets.REFRESH_URL }}
+          ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
+        run: |
+          if [ -z "$REFRESH_URL" ] || [ -z "$ADMIN_PASSWORD" ]; then
+            echo "Missing REFRESH_URL or ADMIN_PASSWORD secrets" >&2
+            exit 1
+          fi
+          set -e
+          echo "Calling $REFRESH_URL"
+          curl -sS -X POST "$REFRESH_URL" -H "Authorization: Bearer $ADMIN_PASSWORD" -H "Content-Length: 0" -o resp.json -w '\nHTTP %{http_code}\n'
+          cat resp.json
+          echo "Summary:"
+          node -e "const r=require('./resp.json'); console.log({updated:r.updated,records:r.records,chunks:r.chunks});"
