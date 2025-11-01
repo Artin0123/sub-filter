@@ -1,19 +1,7 @@
 // Deduplication helpers
 import type { NormalizedRecord } from './subscription';
 
-export function dedupLines(lines: string[]): string[] {
-    const seen = new Set<string>();
-    const out: string[] = [];
-    for (const l of lines) {
-        const key = l.trim();
-        if (!key) continue;
-        if (!seen.has(key)) {
-            seen.add(key);
-            out.push(l);
-        }
-    }
-    return out;
-}
+// Removed unused dedupLines; record-level deduplication is the canonical path.
 
 export function dedupRecords(records: NormalizedRecord[]): NormalizedRecord[] {
     const seen = new Set<string>();

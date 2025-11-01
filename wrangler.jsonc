@@ -7,6 +7,7 @@
 	"name": "sub-filter",
 	"main": "src/index.ts",
 	"compatibility_date": "2025-11-01",
+	"keep_vars": true,
 	"observability": {
 		"enabled": true
 	},
@@ -14,7 +15,7 @@
 		{
 			"binding": "KV_NAMESPACE",
 			// NOTE: For local dev, Miniflare will emulate KV; replace with real ID on deploy.
-			"id": "dev-kv-placeholder"
+			"id": "ad6d853f8cdf483a80203a9886f7ae8b"
 		}
 	]
 	/**

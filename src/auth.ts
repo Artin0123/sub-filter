@@ -63,8 +63,4 @@ export async function verifyCookie(secret: string, token: string): Promise<AuthC
     }
 }
 
-export function isBearerValid(header: string | null | undefined, adminPassword: string): boolean {
-    if (!header) return false;
-    const [, token] = header.split(" ");
-    return token === adminPassword;
-}
+// Removed redundant isBearerValid helper; the refresh endpoint performs its own simple Bearer check.

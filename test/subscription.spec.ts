@@ -16,6 +16,13 @@ describe('subscription parsing', () => {
         expect(ss?.type).toBe('ss');
     });
 
+    it('parses ss with plugin query parameters', () => {
+        const rec = parseUriToRecord('ss://bWV0aG9kOnBhc3M=@e.test:8388?plugin=v2ray-plugin;tls#with-plugin');
+        expect(rec?.type).toBe('ss');
+        expect(rec?.server).toBe('e.test');
+        expect(rec?.port).toBe(8388);
+    });
+
     it('rejects malformed URIs', () => {
         expect(parseUriToRecord('vmess://not-json')).toBeNull();
         expect(parseUriToRecord('vless://missing')).toBeNull();

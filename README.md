@@ -9,7 +9,7 @@ Cloudflare Workers 上的「訂閱合併與分塊服務」。將多個來源訂�
 - 分塊輸出端點：`/sub_1.txt`、`/sub_2.txt`…（每塊固定筆數；預設 400）
 - 來源管理：管理面板 `/` 可登入、列出/新增/移除來源與設定 `chunk_size`
 - 更新 API：`POST /refresh` 立刻抓取來源 → 解析 → 去重 → 寫回 KV（支援 Cookie 或 Bearer 密碼）
-- 快取與省流量：完整與分塊端點皆支援 ETag/If-None-Match 與 `caches.default`（5 分鐘 TTL）
+- 快取與省流量：分塊端點支援 ETag/If-None-Match 與 `caches.default`（5 分鐘 TTL）
 - 最小持久化：僅在內容改變時更新 KV；同時維護 per-chunk ETag、完整輸出 ETag 與最後更新時間
 - CI：已提供 GitHub Actions workflow 觸發更新（不使用 Cloudflare Cron）
 - 測試齊全：涵蓋解析、去重、雜湊、認證、ETag/304、分塊與端對端流程（vitest + Miniflare）

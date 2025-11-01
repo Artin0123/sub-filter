@@ -9,7 +9,14 @@ export type RefreshResult = {
     records: number;
     chunks: { total: number; size: number };
     perSource: { ok: number; fail: number };
-    changed: { full: boolean; byChunk: number[] };
+    changed: { byChunk: number[] };
+    debug?: {
+        linesTotal: number;
+        parsedByScheme: Record<string, number>;
+        failedByScheme: Record<string, number>;
+        duplicates: number;
+        chunkLineCounts: number[];
+    };
 };
 
 export async function runUpdate(env: Env): Promise<RefreshResult> {
@@ -55,12 +62,18 @@ export async function runUpdate(env: Env): Promise<RefreshResult> {
 
     // Parse and normalize
     const records: NormalizedRecord[] = [];
+    let linesTotal = 0;
+    const parsedByScheme: Record<string, number> = {};
+    const failedByScheme: Record<string, number> = {};
     for (const t of texts) {
         const body = maybeDecodeBulkBase64(t);
         const lines = parseSubscriptionText(body);
+        linesTotal += lines.length;
         for (const line of lines) {
+            const scheme = (line.split(":", 1)[0] || "").toLowerCase();
             const rec = parseUriToRecord(line);
             if (rec) records.push(rec);
+            (rec ? parsedByScheme : failedByScheme)[scheme || 'unknown'] = ((rec ? parsedByScheme : failedByScheme)[scheme || 'unknown'] || 0) + 1;
         }
     }
 
@@ -70,9 +83,12 @@ export async function runUpdate(env: Env): Promise<RefreshResult> {
 
     // Chunking
     const chunks: string[] = [];
+    const chunkLineCounts: number[] = [];
     for (let i = 0; i < encodedLines.length; i += chunkSize) {
-        const part = encodedLines.slice(i, i + chunkSize).join('\n');
+        const slice = encodedLines.slice(i, i + chunkSize);
+        const part = slice.join('\n');
         chunks.push(part);
+        chunkLineCounts.push(slice.length);
     }
     const newTotal = chunks.length;
     const oldTotalStr = await env.KV_NAMESPACE.get(KV_KEYS.chunksTotal);
@@ -101,26 +117,19 @@ export async function runUpdate(env: Env): Promise<RefreshResult> {
     // Update total
     await env.KV_NAMESPACE.put(KV_KEYS.chunksTotal, String(newTotal));
 
-    // Full output
-    const full = encodedLines.join('\n');
-    const fullEtag = await sha256Hex(full);
-    const existingFullEtag = await env.KV_NAMESPACE.get(KV_KEYS.etag);
-    let fullChanged = false;
-    if (existingFullEtag !== fullEtag) {
-        await env.KV_NAMESPACE.put(KV_KEYS.subTxt, full);
-        await env.KV_NAMESPACE.put(KV_KEYS.etag, fullEtag);
-        fullChanged = true;
-    }
-
     await env.KV_NAMESPACE.put(KV_KEYS.lastUpdatedISO, new Date().toISOString());
+    const duplicates = records.length - unique.length;
+    const debugInfo = { linesTotal, parsedByScheme, failedByScheme, duplicates, chunkLineCounts };
+    await env.KV_NAMESPACE.put(KV_KEYS.lastStats, JSON.stringify(debugInfo));
 
-    const updated = fullChanged || changedChunks.length > 0 || oldTotal !== newTotal;
+    const updated = changedChunks.length > 0 || oldTotal !== newTotal;
 
     return {
         updated,
         records: unique.length,
         chunks: { total: newTotal, size: chunkSize },
         perSource: { ok, fail },
-        changed: { full: fullChanged, byChunk: changedChunks },
+        changed: { byChunk: changedChunks },
+        debug: debugInfo,
     };
 }

@@ -7,6 +7,7 @@ export type NormalizedRecord = {
     servername?: string;
     sni?: string;
     password?: string;
+    method?: string; // for shadowsocks
     uuid?: string;
     tls?: boolean;
     reality?: boolean;
@@ -22,6 +23,14 @@ export function safeBase64Decode(input: string): string | null {
     } catch {
         return null;
     }
+}
+
+export function safeBase64EncodeUtf8(input: string): string {
+    // Encode a JS string as UTF-8 bytes, then to Base64 safely.
+    const bytes = new TextEncoder().encode(input);
+    let bin = '';
+    for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+    return btoa(bin);
 }
 
 export function parseSubscriptionText(text: string): string[] {
@@ -93,7 +102,7 @@ function encodeVmess(rec: NormalizedRecord): string {
         type: 'none',
     };
     const json = JSON.stringify(obj);
-    const b64 = btoa(json);
+    const b64 = safeBase64EncodeUtf8(json);
     return `vmess://${b64}`;
 }
 
@@ -188,20 +197,22 @@ function parseSS(uri: string): NormalizedRecord | null {
     let server = '';
     let port = 0;
     if (hostport) {
-        const m = hostport.match(/^\[?([^\]]+)\]?:([0-9]+)$/); // ipv6 in [] or hostname
+        // Strip any query params like ?plugin=...
+        const hp = hostport.split('?', 1)[0];
+        const m = hp.match(/^\[?([^\]]+)\]?:([0-9]+)$/); // ipv6 in [] or hostname
         if (m) { server = m[1].toLowerCase(); port = Number(m[2]); }
     }
     if (!server || !port) return null;
-    return { type: 'ss', server, port, password, name, tag: name };
+    return { type: 'ss', server, port, method, password, name, tag: name };
 }
 
 function encodeSS(rec: NormalizedRecord): string {
-    const creds = `${rec.password ? `:${rec.password}` : ''}`; // method omitted (unknown), keep password only if present
-    // Prefer simpler: method not known; emit base minimal form without method if absent
-    // If password present but no method, we still cannot form a valid SS URI. Fallback to plain host:port as tag-only is invalid.
-    // Emit without credentials if missing.
-    const userinfo = rec.password ? `:${encodeURIComponent(rec.password)}` : '';
-    const base = `ss://${userinfo ? 'method' + userinfo + '@' : ''}${rec.server}:${rec.port}`; // put placeholder method when password exists
     const frag = rec.name || rec.tag || '';
-    return `${base}${frag ? '#' + encodeURIComponent(frag) : ''}`;
+    if (rec.method) {
+        const creds = `${rec.method}:${rec.password ?? ''}`;
+        const b64 = safeBase64EncodeUtf8(creds);
+        return `ss://${b64}@${rec.server}:${rec.port}${frag ? '#' + encodeURIComponent(frag) : ''}`;
+    }
+    // Fallback: no method known; emit minimal host:port with tag (may be ignored by clients, but avoids invalid placeholder)
+    return `ss://${rec.server}:${rec.port}${frag ? '#' + encodeURIComponent(frag) : ''}`;
 }

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { signCookie, verifyCookie, isBearerValid } from '../src/auth';
+import { signCookie, verifyCookie } from '../src/auth';
 
 describe('auth', () => {
     it('sign and verify cookie with expiry', async () => {
@@ -14,9 +14,5 @@ describe('auth', () => {
         const ok = await verifyCookie(secret, token);
         expect(ok).toBeNull();
     });
-    it('bearer validation', () => {
-        expect(isBearerValid('Bearer abc', 'abc')).toBe(true);
-        expect(isBearerValid('Bearer wrong', 'abc')).toBe(false);
-        expect(isBearerValid(null, 'abc')).toBe(false);
-    });
+    // Bearer validation is covered by the /refresh integration test in update.spec.ts
 });

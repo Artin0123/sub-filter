@@ -1,7 +1,5 @@
 // Cache wrappers for 5-minute edge cache
 
-const CACHE_TTL_SECONDS = 300;
-
 export async function cacheGet(request: Request): Promise<Response | undefined> {
     return caches.default.match(request);
 }
