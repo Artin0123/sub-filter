@@ -42,7 +42,7 @@ Cloudflare Workers 上的「訂閱合併與分塊服務」。將多個來源訂�
 
 ### 路由
 
-- `GET /sub_{index}.txt`：分塊輸出，`index` 從 1 起算
+- `GET /sub_{index}.txt?token=xxx`：分塊輸出，`index` 從 1 起算（需要有效的訂閱 token）
 - 管理面板與 API（路徑上移一層）：
   - `GET /`：登入/管理頁
   - `POST /login`、`POST /logout`
@@ -82,6 +82,9 @@ Cloudflare Workers 上的「訂閱合併與分塊服務」。將多個來源訂�
 
 - 管理面板登入：比對 `env.ADMIN_PASSWORD` 成功後，回傳 HMAC 簽名的 HttpOnly Cookie（Secure + SameSite=Lax）
 - `/refresh`：可用登入 Cookie，或以 `Authorization: Bearer <ADMIN_PASSWORD>` 直接呼叫
+- 訂閱端點保護：`/sub_{i}.txt` 需要在 query string 提供有效的 token（例如 `/sub_1.txt?token=xxx`）
+  - Token 由 `ADMIN_PASSWORD` 自動生成（SHA-256 後取前 12 位）
+  - 管理面板會顯示完整的訂閱 URL（含 token），可一鍵複製
 - 不在 KV 存放密碼；請用 Cloudflare Secrets 或 GitHub Secrets 注入
 
 ## 快取與 ETag
@@ -122,7 +125,7 @@ npm test
 ## 部署與設定
 
 - `wrangler.jsonc` 已綁定 `KV_NAMESPACE`，部署前請在 Cloudflare 介面建立實際的 KV 並填入對應 ID
-- 將 `ADMIN_PASSWORD` 設為 Worker Secret（例如 `wrangler secret put ADMIN_PASSWORD`）
+- 設定 Worker Secret：`wrangler secret put ADMIN_PASSWORD`
 - 部署：
 
 ```bash
@@ -144,14 +147,14 @@ npm run deploy
 
 ## API 速覽
 
-- `GET /sub_{i}.txt` → text/plain（1 起算；超出範圍 404）
+- `GET /sub_{i}.txt?token=xxx` → text/plain（1 起算；需有效 token；超出範圍 404）
 - `POST /refresh` → application/json（需登入或 Bearer）
 - 管理端：
   - `GET /` → text/html
   - `POST /login`、`POST /logout`
   - `GET /list` → JSON（需登入）
   - `POST /add`、`POST /remove` → JSON（需登入）
-  - `GET /config`、`POST /config` → JSON（需登入）
+  - `GET /config`、`POST /config` → JSON（需登入，回傳包含 subscription_token）
 
 ## 測試
 

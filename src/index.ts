@@ -15,6 +15,7 @@ import { KV_KEYS } from './kv';
 import { cacheGet, cachePut, withCacheControl } from './cache';
 import { signCookie, verifyCookie } from './auth';
 import { runUpdate } from './update';
+import { sha256Hex } from './hash';
 
 function html(body: string, noCache = false): Response {
 	const headers = new Headers({ 'content-type': 'text/html; charset=utf-8' });
@@ -58,7 +59,19 @@ async function requireLogin(req: Request, env: Env): Promise<boolean> {
 
 // Removed: /sub.txt endpoint (full output kept internal in KV)
 
+async function generateSubscriptionToken(password: string): Promise<string> {
+	const hash = await sha256Hex(password);
+	return hash.substring(0, 12);
+}
+
 async function handleSubChunk(request: Request, env: Env, index: number): Promise<Response> {
+	const url = new URL(request.url);
+	const token = url.searchParams.get('token');
+	const validToken = await generateSubscriptionToken(env.ADMIN_PASSWORD || '');
+	if (!token || token !== validToken) {
+		return new Response('Unauthorized', { status: 401 });
+	}
+
 	const totalStr = await env.KV_NAMESPACE.get(KV_KEYS.chunksTotal);
 	const total = totalStr ? parseInt(totalStr, 10) : 0;
 	if (!(index >= 1 && index <= total)) return new Response('Not Found', { status: 404 });
@@ -88,11 +101,14 @@ async function handleAdminPage(request: Request, env: Env): Promise<Response> {
 	if (!loggedIn) {
 		return html(`
 			<style>
+				*, *::before, *::after{box-sizing:border-box}
 				body{font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif;max-width:800px;margin:40px auto;padding:0 16px}
 				.card{border:1px solid #ddd;border-radius:8px;padding:16px}
-				.row{display:flex;gap:8px}
-				input[type=password]{flex:1;padding:8px}
-				button{padding:8px 12px}
+				.row{display:flex;gap:8px;align-items:center}
+				input[type=password]{flex:1;padding:8px;border:1px solid #ddd;border-radius:4px;font-size:14px;min-width:0}
+				button{padding:8px 12px;border:1px solid #ddd;border-radius:4px;background:#fff;cursor:pointer;font-size:14px;font-family:inherit;white-space:nowrap}
+				button:hover{background:#f6f8fa}
+				button:active{background:#eee}
 			</style>
 			<h1>Admin Login</h1>
 			<div class="card">
@@ -121,17 +137,24 @@ async function handleAdminPage(request: Request, env: Env): Promise<Response> {
 			body{font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif;max-width:900px;margin:40px auto;padding:0 16px}
 			.grid{display:grid;grid-template-columns:1fr;gap:16px}
 			.card{border:1px solid #ddd;border-radius:8px;padding:16px;max-width:100%;}
-			.row{display:flex;gap:8px;align-items:center}
-			input[type=text],input[type=number]{flex:1;padding:8px}
-			button{padding:8px 12px}
+			.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+			input[type=text],input[type=number]{flex:1;padding:8px;border:1px solid #ddd;border-radius:4px;font-size:14px}
+			button{padding:8px 12px;border:1px solid #ddd;border-radius:4px;background:#fff;cursor:pointer;font-size:14px;font-family:inherit}
+			button:hover{background:#f6f8fa}
+			button:active{background:#eee}
 			ul{margin:0;padding-left:18px;max-height:280px;overflow:auto}
 			ul li a{display:inline-block;max-width:100%;overflow-wrap:anywhere;word-break:break-all}
 			code{background:#f6f8fa;padding:1px 4px;border-radius:4px}
+			@media (max-width:600px){
+				.row{gap:10px}
+				button{padding:6px 10px;font-size:13px}
+			}
 		</style>
 		<h1>Admin Console</h1>
 		<div class="row" style="margin-bottom:12px">
-			<form id="logout-form"><button type="submit">Logout</button></form>
+			<form id="logout-form" style="margin:0"><button type="submit">Logout</button></form>
 			<button id="refresh">Refresh Now</button>
+			<button id="copy-url">Copy Subscription URL</button>
 			<span id="status" style="margin-left:8px;color:#555"></span>
 		</div>
 		<div class="grid">
@@ -172,11 +195,21 @@ async function handleAdminPage(request: Request, env: Env): Promise<Response> {
 				li.append(a, btn); ul.append(li);
 			});
 		}
+		let subToken = '';
 		async function loadConfig(){
 			const r = await fetch('/config');
 			const cfg = await r.json();
 			document.getElementById('chunk-size').value = cfg.chunk_size ?? 400;
+			subToken = cfg.subscription_token || '';
 		}
+		document.getElementById('copy-url').addEventListener('click', async ()=>{
+			const url = location.origin + '/sub_1.txt?token=' + subToken;
+			await navigator.clipboard.writeText(url);
+			const s = document.getElementById('status');
+			s.textContent = 'URL copied!';
+			s.style.color = '#0a0';
+			setTimeout(()=>{s.textContent=''; s.style.color='#555';}, 2000);
+		});
 		document.getElementById('add').addEventListener('click', async ()=>{
 			const url = document.getElementById('source-input').value.trim();
 			if(!url) return;
@@ -293,7 +326,8 @@ async function handleAdminConfigGet(request: Request, env: Env): Promise<Respons
 	const unauth = await ensureAuth(request, env); if (unauth) return unauth;
 	const chunkSizeStr = await env.KV_NAMESPACE.get(KV_KEYS.chunkSize);
 	const chunk_size = chunkSizeStr ? parseInt(chunkSizeStr, 10) : 400;
-	return new Response(JSON.stringify({ chunk_size }), { headers: { 'content-type': 'application/json' } });
+	const subscription_token = await generateSubscriptionToken(env.ADMIN_PASSWORD || '');
+	return new Response(JSON.stringify({ chunk_size, subscription_token }), { headers: { 'content-type': 'application/json' } });
 }
 
 async function handleAdminConfigPost(request: Request, env: Env): Promise<Response> {
@@ -349,6 +383,8 @@ async function handleDebug(request: Request, env: Env): Promise<Response> {
 	};
 	return new Response(JSON.stringify(info, null, 2), { headers: { 'content-type': 'application/json' } });
 }
+
+
 
 export default {
 	async fetch(request, env): Promise<Response> {
