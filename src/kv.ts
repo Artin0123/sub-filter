@@ -3,6 +3,7 @@
 export const KV_KEYS = {
     sources: "sources",
     chunkSize: "chunk_size",
+    base64Encode: "base64_encode",
     chunksTotal: "chunks_total",
     subTxtI: (i: number) => `sub_txt_${i}`,
     etagI: (i: number) => `etag_${i}`,

@@ -1,14 +1,5 @@
 /**
- * Welcome to Cloudflare Workers! This is your first worker.
- *
- * - Run `npm run dev` in your terminal to start a development server
- * - Open a browser tab at http://localhost:8787/ to see your worker in action
- * - Run `npm run deploy` to publish your worker
- *
- * Bind resources to your worker in `wrangler.jsonc`. After adding bindings, a type definition for the
- * `Env` object can be regenerated with `npm run cf-typegen`.
- *
- * Learn more at https://developers.cloudflare.com/workers/
+ * Cloudflare Workers subscription aggregator with chunking support
  */
 
 import { KV_KEYS } from './kv';
@@ -17,10 +8,36 @@ import { signCookie, verifyCookie } from './auth';
 import { runUpdate } from './update';
 import { sha256Hex } from './hash';
 
-function html(body: string, noCache = false): Response {
-	const headers = new Headers({ 'content-type': 'text/html; charset=utf-8' });
-	if (noCache) headers.set('Cache-Control', 'no-store');
-	return new Response(`<!doctype html><meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>${body}`, { headers });
+// Rate limiting (in-memory, resets on worker restart)
+const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
+
+function checkRateLimit(ip: string, maxRequests: number, windowMs: number): boolean {
+	const now = Date.now();
+	const record = rateLimitMap.get(ip);
+
+	if (!record || now > record.resetAt) {
+		rateLimitMap.set(ip, { count: 1, resetAt: now + windowMs });
+		return true;
+	}
+
+	if (record.count >= maxRequests) {
+		return false;
+	}
+
+	record.count++;
+	return true;
+}
+
+async function constantTimeEqual(a: string, b: string): Promise<boolean> {
+	const encoder = new TextEncoder();
+	const aBytes = encoder.encode(a);
+	const bBytes = encoder.encode(b);
+
+	if (aBytes.length !== bBytes.length) {
+		return false;
+	}
+
+	return await crypto.subtle.timingSafeEqual(aBytes, bBytes);
 }
 
 function getCookie(req: Request, name: string): string | null {
@@ -57,18 +74,18 @@ async function requireLogin(req: Request, env: Env): Promise<boolean> {
 	}
 }
 
-// Removed: /sub.txt endpoint (full output kept internal in KV)
-
 async function generateSubscriptionToken(password: string): Promise<string> {
 	const hash = await sha256Hex(password);
-	return hash.substring(0, 12);
+	return hash.substring(0, 16); // 16 chars = 64 bits
 }
 
 async function handleSubChunk(request: Request, env: Env, index: number): Promise<Response> {
 	const url = new URL(request.url);
 	const token = url.searchParams.get('token');
 	const validToken = await generateSubscriptionToken(env.ADMIN_PASSWORD || '');
-	if (!token || token !== validToken) {
+
+	// Constant-time comparison to prevent timing attacks
+	if (!token || !(await constantTimeEqual(token, validToken))) {
 		return new Response('Unauthorized', { status: 401 });
 	}
 
@@ -76,14 +93,23 @@ async function handleSubChunk(request: Request, env: Env, index: number): Promis
 	const total = totalStr ? parseInt(totalStr, 10) : 0;
 	if (!(index >= 1 && index <= total)) return new Response('Not Found', { status: 404 });
 
-	const ifNone = request.headers.get('if-none-match');
 	const etag = await env.KV_NAMESPACE.get(KV_KEYS.etagI(index));
+	const ifNone = request.headers.get('if-none-match');
+
+	// Check ETag first
 	if (etag && ifNone && ifNone === etag) {
 		return new Response(null, { status: 304, headers: { ETag: etag, 'Cache-Control': 'public, max-age=300, must-revalidate' } });
 	}
 
+	// Check edge cache, but verify ETag matches
 	const cached = await cacheGet(request);
-	if (cached) return cached;
+	if (cached) {
+		const cachedEtag = cached.headers.get('etag');
+		if (cachedEtag === etag) {
+			return cached;
+		}
+		// ETag mismatch, cache is stale, continue to fetch fresh content
+	}
 
 	const body = await env.KV_NAMESPACE.get(KV_KEYS.subTxtI(index));
 	if (!body) return new Response('Not Found', { status: 404 });
@@ -98,156 +124,8 @@ async function handleSubChunk(request: Request, env: Env, index: number): Promis
 
 async function handleAdminPage(request: Request, env: Env): Promise<Response> {
 	const loggedIn = await requireLogin(request, env);
-	if (!loggedIn) {
-		return html(`
-			<style>
-				*, *::before, *::after{box-sizing:border-box}
-				body{font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif;max-width:800px;margin:40px auto;padding:0 16px}
-				.card{border:1px solid #ddd;border-radius:8px;padding:16px}
-				.row{display:flex;gap:8px;align-items:center}
-				input[type=password]{flex:1;padding:8px;border:1px solid #ddd;border-radius:4px;font-size:14px;min-width:0}
-				button{padding:8px 12px;border:1px solid #ddd;border-radius:4px;background:#fff;cursor:pointer;font-size:14px;font-family:inherit;white-space:nowrap}
-				button:hover{background:#f6f8fa}
-				button:active{background:#eee}
-			</style>
-			<h1>Admin Login</h1>
-			<div class="card">
-				<form id="login-form" class="row">
-					<input type="password" name="password" placeholder="Password" required />
-					<button type="submit">Login</button>
-				</form>
-				<div id="msg" style="margin-top:8px;color:#c00"></div>
-			</div>
-			<script>
-			const form = document.getElementById('login-form');
-			form.addEventListener('submit', async (e)=>{
-				e.preventDefault();
-				const fd = new FormData(form);
-				const body = new URLSearchParams(fd);
-				const r = await fetch('/login', { method:'POST', body });
-				if(r.ok){ location.href='/'; }
-				else{ document.getElementById('msg').textContent = 'Login failed'; }
-			});
-			</script>
-		`, true);
-	}
-	return html(`
-		<style>
-			*, *::before, *::after{box-sizing:border-box}
-			body{font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif;max-width:900px;margin:40px auto;padding:0 16px}
-			.grid{display:grid;grid-template-columns:1fr;gap:16px}
-			.card{border:1px solid #ddd;border-radius:8px;padding:16px;max-width:100%;}
-			.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
-			input[type=text],input[type=number]{flex:1;padding:8px;border:1px solid #ddd;border-radius:4px;font-size:14px}
-			button{padding:8px 12px;border:1px solid #ddd;border-radius:4px;background:#fff;cursor:pointer;font-size:14px;font-family:inherit}
-			button:hover{background:#f6f8fa}
-			button:active{background:#eee}
-			ul{margin:0;padding-left:18px;max-height:280px;overflow:auto}
-			ul li a{display:inline-block;max-width:100%;overflow-wrap:anywhere;word-break:break-all}
-			code{background:#f6f8fa;padding:1px 4px;border-radius:4px}
-			@media (max-width:600px){
-				.row{gap:10px}
-				button{padding:6px 10px;font-size:13px}
-			}
-		</style>
-		<h1>Admin Console</h1>
-		<div class="row" style="margin-bottom:12px">
-			<form id="logout-form" style="margin:0"><button type="submit">Logout</button></form>
-			<button id="refresh">Refresh Now</button>
-			<button id="copy-url">Copy Subscription URL</button>
-			<span id="status" style="margin-left:8px;color:#555"></span>
-		</div>
-		<div class="grid">
-			<div class="card">
-				<h3>Sources</h3>
-				<div class="row" style="margin-bottom:8px">
-					<input type="text" id="source-input" placeholder="Source URL (supports inline:..., data:...)" />
-					<button id="add">Add</button>
-				</div>
-				<ul id="sources"></ul>
-			</div>
-			<div class="card">
-				<h3>Config</h3>
-				<div class="row" style="margin-bottom:8px">
-					<label>chunk_size</label>
-					<input type="number" id="chunk-size" min="50" max="2000" step="1" />
-					<button id="save-cfg">Save</button>
-				</div>
-				<div id="cfg-msg" style="color:#0a0"></div>
-				<div style="margin-top:8px;color:#555">Use <code>inline:</code> to paste subscription content directly for testing.</div>
-			</div>
-		</div>
-		<script>
-		async function loadList(){
-			const r = await fetch('/list');
-			const arr = await r.json();
-			const ul = document.getElementById('sources');
-			ul.innerHTML='';
-			arr.forEach(u=>{
-				const li = document.createElement('li');
-				const a = document.createElement('a'); a.href=u; a.textContent=u; a.target='_blank';
-				const btn = document.createElement('button'); btn.textContent='Remove'; btn.style.marginLeft='8px';
-				btn.addEventListener('click', async ()=>{
-					const body = new URLSearchParams({ url: u });
-					const rr = await fetch('/remove', { method:'POST', body });
-					if(rr.ok) loadList();
-				});
-				li.append(a, btn); ul.append(li);
-			});
-		}
-		let subToken = '';
-		async function loadConfig(){
-			const r = await fetch('/config');
-			const cfg = await r.json();
-			document.getElementById('chunk-size').value = cfg.chunk_size ?? 400;
-			subToken = cfg.subscription_token || '';
-		}
-		document.getElementById('copy-url').addEventListener('click', async ()=>{
-			const url = location.origin + '/sub_1.txt?token=' + subToken;
-			await navigator.clipboard.writeText(url);
-			const s = document.getElementById('status');
-			s.textContent = 'URL copied!';
-			s.style.color = '#0a0';
-			setTimeout(()=>{s.textContent=''; s.style.color='#555';}, 2000);
-		});
-		document.getElementById('add').addEventListener('click', async ()=>{
-			const url = document.getElementById('source-input').value.trim();
-			if(!url) return;
-			const body = new URLSearchParams({ url });
-			const r = await fetch('/add', { method:'POST', body });
-			if(r.ok){ document.getElementById('source-input').value=''; loadList(); }
-		});
-		document.getElementById('save-cfg').addEventListener('click', async ()=>{
-			const n = document.getElementById('chunk-size').value;
-			const body = new URLSearchParams({ chunk_size: n });
-			const r = await fetch('/config', { method:'POST', body });
-			document.getElementById('cfg-msg').textContent = r.ok ? 'Saved' : 'Failed';
-			setTimeout(()=>{document.getElementById('cfg-msg').textContent='';},1500);
-		});
-		document.getElementById('logout-form').addEventListener('submit', async (e)=>{
-			e.preventDefault();
-			await fetch('/logout', { method:'POST' });
-			location.href='/';
-		});
-		document.getElementById('refresh').addEventListener('click', async ()=>{
-			const s = document.getElementById('status'); s.textContent='Refreshing...';
-			const r = await fetch('/refresh', { method:'POST' });
-			const j = await r.json().catch(()=>({}));
-			const parts = [];
-			if (r.ok) {
-			  parts.push('Updated: ' + (j.updated));
-			  parts.push('records=' + (j.records));
-			  if (j && j.chunks) parts.push('chunks=' + (j.chunks.total) + ' (size=' + (j.chunks.size) + ')');
-			  if (j && j.perSource) parts.push('sources ok=' + j.perSource.ok + ', fail=' + j.perSource.fail);
-			  s.textContent = parts.join(', ');
-			} else {
-			  s.textContent = 'Failed' + (j && (j.message || j.error) ? (': ' + (j.message || j.error)) : '');
-			}
-			setTimeout(()=>{s.textContent='';}, 4000);
-		});
-		loadList(); loadConfig();
-		</script>
-	`, true);
+	const file = loggedIn ? '/admin.html' : '/login-page.html';
+	return env.ASSETS.fetch(new URL(file, request.url));
 }
 
 async function parseBody(req: Request): Promise<Record<string, any>> {
@@ -261,7 +139,6 @@ async function parseBody(req: Request): Promise<Record<string, any>> {
 		for (const [k, v] of form.entries()) obj[k] = typeof v === 'string' ? v : String(v);
 		return obj;
 	}
-	// Fallback: try text -> parse key=value
 	const text = await req.text();
 	const params = new URLSearchParams(text);
 	const obj: Record<string, any> = {};
@@ -270,6 +147,12 @@ async function parseBody(req: Request): Promise<Record<string, any>> {
 }
 
 async function handleAdminLogin(request: Request, env: Env): Promise<Response> {
+	// Rate limiting: 5 attempts per minute per IP
+	const clientIP = request.headers.get('CF-Connecting-IP') || 'unknown';
+	if (!checkRateLimit(clientIP, 5, 60000)) {
+		return new Response('Too Many Requests', { status: 429 });
+	}
+
 	const body = await parseBody(request);
 	if (!env.ADMIN_PASSWORD) {
 		return new Response('ADMIN_PASSWORD not configured', { status: 500 });
@@ -326,8 +209,10 @@ async function handleAdminConfigGet(request: Request, env: Env): Promise<Respons
 	const unauth = await ensureAuth(request, env); if (unauth) return unauth;
 	const chunkSizeStr = await env.KV_NAMESPACE.get(KV_KEYS.chunkSize);
 	const chunk_size = chunkSizeStr ? parseInt(chunkSizeStr, 10) : 400;
+	const base64EncodeStr = await env.KV_NAMESPACE.get(KV_KEYS.base64Encode);
+	const base64_encode = base64EncodeStr === '1';
 	const subscription_token = await generateSubscriptionToken(env.ADMIN_PASSWORD || '');
-	return new Response(JSON.stringify({ chunk_size, subscription_token }), { headers: { 'content-type': 'application/json' } });
+	return new Response(JSON.stringify({ chunk_size, base64_encode, subscription_token }), { headers: { 'content-type': 'application/json' } });
 }
 
 async function handleAdminConfigPost(request: Request, env: Env): Promise<Response> {
@@ -336,23 +221,37 @@ async function handleAdminConfigPost(request: Request, env: Env): Promise<Respon
 	const n = Number(body.chunk_size);
 	if (!Number.isInteger(n) || n < 50 || n > 2000) return new Response('Bad Request', { status: 400 });
 	await env.KV_NAMESPACE.put(KV_KEYS.chunkSize, String(n));
+
+	const base64Encode = body.base64_encode === '1' || body.base64_encode === 'true';
+	await env.KV_NAMESPACE.put(KV_KEYS.base64Encode, base64Encode ? '1' : '0');
+
 	return new Response('OK');
 }
 
 async function handleRefresh(request: Request, env: Env): Promise<Response> {
-	// auth: prefer Bearer first (avoids stale cookies interfering), then cookie
+	// Rate limiting: 10 attempts per 10 minutes per IP
+	const clientIP = request.headers.get('CF-Connecting-IP') || 'unknown';
+	if (!checkRateLimit(clientIP, 10, 600000)) {
+		return new Response('Too Many Requests', { status: 429 });
+	}
+
 	let ok = false;
 	const auth = request.headers.get('authorization');
 	if (auth && auth.startsWith('Bearer ')) {
 		const token = auth.split(' ')[1] ?? '';
-		ok = token === env.ADMIN_PASSWORD;
+		// Use HMAC-signed token instead of plain password
+		try {
+			const payload = await verifyCookie(env.ADMIN_PASSWORD, token);
+			ok = !!payload;
+		} catch {
+			ok = false;
+		}
 	}
 	if (!ok) {
 		ok = await requireLogin(request, env);
 	}
 	if (!ok) return new Response('Unauthorized', { status: 401 });
 
-	// Basic binding sanity checks
 	if (!env.KV_NAMESPACE || typeof (env.KV_NAMESPACE as any).get !== 'function') {
 		return new Response(JSON.stringify({ error: 'kv_binding_missing', message: 'KV_NAMESPACE binding is missing or invalid' }), { status: 500, headers: { 'content-type': 'application/json' } });
 	}
@@ -361,7 +260,15 @@ async function handleRefresh(request: Request, env: Env): Promise<Response> {
 		return new Response(JSON.stringify(result), { headers: { 'content-type': 'application/json' } });
 	} catch (e: any) {
 		console.error('refresh failed', e);
-		return new Response(JSON.stringify({ error: 'refresh_failed', message: String(e) }), { status: 500, headers: { 'content-type': 'application/json' } });
+
+		// Only return safe error messages
+		const errorName = e?.name || 'unknown';
+		const safeErrors = ['TypeError', 'SyntaxError', 'AbortError'];
+		const message = safeErrors.includes(errorName)
+			? `Refresh failed: ${errorName}`
+			: 'Refresh failed. Please check logs for details.';
+
+		return new Response(JSON.stringify({ error: 'refresh_failed', message }), { status: 500, headers: { 'content-type': 'application/json' } });
 	}
 }
 
@@ -384,21 +291,25 @@ async function handleDebug(request: Request, env: Env): Promise<Response> {
 	return new Response(JSON.stringify(info, null, 2), { headers: { 'content-type': 'application/json' } });
 }
 
-
-
 export default {
 	async fetch(request, env): Promise<Response> {
 		const url = new URL(request.url);
 		const pathname = url.pathname;
 
+		// Static files (CSS, JS, HTML)
+		if (pathname === '/admin.css' || pathname === '/admin.js' || pathname === '/login.js' || pathname === '/login-page.html' || pathname === '/admin.html') {
+			return env.ASSETS.fetch(request);
+		}
+
 		// Public subscription endpoints (chunked only)
-		const m = pathname.match(/^\/sub_(\d+)\.txt$/);
+		// Support /sub_1, /sub_2, /sub_3, etc.
+		const m = pathname.match(/^\/sub_(\d+)$/);
 		if (request.method === 'GET' && m) {
 			const idx = parseInt(m[1], 10);
 			return handleSubChunk(request, env, idx);
 		}
 
-		// Admin UI and APIs (moved to root)
+		// Admin UI and APIs
 		if (request.method === 'GET' && pathname === '/') return handleAdminPage(request, env);
 		if (request.method === 'POST' && pathname === '/login') return handleAdminLogin(request, env);
 		if (request.method === 'POST' && pathname === '/logout') return handleAdminLogout();

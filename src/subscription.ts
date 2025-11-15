@@ -41,8 +41,19 @@ export function parseSubscriptionText(text: string): string[] {
 }
 
 export function maybeDecodeBulkBase64(text: string): string {
+    // Only attempt decode if text looks like Base64 (no protocol prefix)
+    // This avoids unnecessary decode attempts on plain text subscriptions
+    if (/:\/\//.test(text)) {
+        // Already contains protocol, not Base64 encoded
+        return text;
+    }
+
     const decoded = safeBase64Decode(text);
-    if (decoded && /:\/\//.test(decoded)) return decoded;
+    // Check if decoded content contains valid proxy protocols
+    if (decoded && /(?:vmess|vless|trojan|ss|ssr|hysteria|tuic):\/\//.test(decoded)) {
+        return decoded;
+    }
+
     return text;
 }
 

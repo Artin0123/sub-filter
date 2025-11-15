@@ -63,4 +63,3 @@ export async function verifyCookie(secret: string, token: string): Promise<AuthC
     }
 }
 
-// Removed redundant isBearerValid helper; the refresh endpoint performs its own simple Bearer check.

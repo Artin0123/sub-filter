@@ -19,8 +19,53 @@ jobs:
             exit 1
           fi
           set -e
+
+          # Generate HMAC-signed Bearer token (matching Worker's signCookie implementation)
+          echo "Generating Bearer token..."
+          BEARER_TOKEN=$(node << 'EOF'
+            const crypto = require('crypto');
+            const password = process.env.ADMIN_PASSWORD;
+            
+            // Payload matching Worker's AuthCookiePayload
+            const payload = {
+              sub: 'admin',
+              exp: Math.floor(Date.now() / 1000) + 3600
+            };
+            const payloadStr = JSON.stringify(payload);
+            
+            // HMAC-SHA256 signature (matching crypto.subtle.sign in Worker)
+            const hmac = crypto.createHmac('sha256', password);
+            hmac.update(payloadStr);
+            const sig = hmac.digest();
+            
+            // Base64url encode (matching Worker's toBase64Url)
+            const toBase64Url = (buf) => buf.toString('base64')
+              .replace(/\+/g, '-')
+              .replace(/\//g, '_')
+              .replace(/=+$/g, '');
+            
+            const token = toBase64Url(Buffer.from(payloadStr)) + '.' + toBase64Url(sig);
+            console.log(token);
+          EOF
+          )
+
           echo "Calling $REFRESH_URL"
-          curl -sS -X POST "$REFRESH_URL" -H "Authorization: Bearer $ADMIN_PASSWORD" -H "Content-Length: 0" -o resp.json -w '\nHTTP %{http_code}\n'
+          HTTP_CODE=$(curl -sS -X POST "$REFRESH_URL" \
+            -H "Authorization: Bearer $BEARER_TOKEN" \
+            -H "Content-Length: 0" \
+            -o resp.json \
+            -w '%{http_code}')
+
+          echo "HTTP $HTTP_CODE"
+
+          # Check if request was successful
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "Error: Request failed with status $HTTP_CODE"
+            cat resp.json
+            exit 1
+          fi
+
           cat resp.json
+          echo ""
           echo "Summary:"
           node -e "const r=require('./resp.json'); console.log({updated:r.updated,records:r.records,chunks:r.chunks});"

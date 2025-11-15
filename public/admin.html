@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Admin Console</title>
+        <link rel="stylesheet" href="/admin.css">
+    </head>
+
+    <body>
+        <button id="theme-toggle" title="Toggle theme">🌙</button>
+        <h1>Admin Console</h1>
+        <div class="row" style="margin-bottom:12px">
+            <form id="logout-form" style="margin:0"><button type="submit">Logout</button></form>
+            <button id="debug-btn">Debug Info</button>
+            <button id="refresh">Refresh Now</button>
+            <span id="status" style="margin-left:8px;color:var(--status)"></span>
+        </div>
+        <div class="grid">
+            <div class="card">
+                <h3>Subscription URL</h3>
+                <div class="row" style="margin-bottom:8px">
+                    <button id="prev-chunk" class="nav-btn">◀</button>
+                    <button id="copy-url" style="flex:1">Copy sub_1 link</button>
+                    <button id="next-chunk" class="nav-btn">▶</button>
+                </div>
+                <div id="copy-msg" style="margin-top:8px;color:#0a0;min-height:20px;text-align:center"></div>
+            </div>
+            <div class="card">
+                <h3>Sources</h3>
+                <div class="row" style="margin-bottom:8px">
+                    <input type="text" id="source-input" placeholder="Source URL (supports inline:..., data:...)" />
+                    <button id="add">Add</button>
+                </div>
+                <ol id="sources"></ol>
+            </div>
+            <div class="card">
+                <h3>Config</h3>
+                <div class="row" style="margin-bottom:8px">
+                    <label>chunk_size</label>
+                    <input type="number" id="chunk-size" min="50" max="2000" step="1" />
+                </div>
+                <div class="row" style="margin-bottom:8px">
+                    <label>Base64 encode</label>
+                    <label class="switch">
+                        <input type="checkbox" id="base64-encode">
+                        <span class="slider"></span>
+                    </label>
+                </div>
+                <div class="row" style="margin-bottom:8px">
+                    <button id="save-cfg">Save</button>
+                    <div id="cfg-msg" style="color:#0a0"></div>
+                </div>
+                <div style="margin-top:8px;color:var(--status)">Use <code>inline:</code> to paste subscription content
+                    directly for testing.</div>
+            </div>
+        </div>
+        <script src="/admin.js"></script>
+    </body>
+
+</html>

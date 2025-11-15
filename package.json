@@ -5,15 +5,15 @@
 	"scripts": {
 		"deploy": "wrangler deploy",
 		"dev": "wrangler dev",
-		"test": "vitest",
+		"test": "vitest --run",
 		"compare:sample": "node scripts/compare-sample.mjs",
 		"cf-typegen": "wrangler types"
 	},
 	"devDependencies": {
-		"@cloudflare/vitest-pool-workers": "^0.10.5",
-		"@types/node": "^24.10.0",
+		"@cloudflare/vitest-pool-workers": "^0.10.7",
+		"@types/node": "^24.10.1",
 		"typescript": "^5.9.3",
 		"vitest": "~3.2.4",
-		"wrangler": "^4.46.0"
+		"wrangler": "^4.47.0"
 	}
 }

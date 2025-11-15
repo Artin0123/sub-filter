@@ -24,6 +24,17 @@ export async function runUpdate(env: Env): Promise<RefreshResult> {
     const urls = Array.isArray(sources) ? sources.filter((s) => typeof s === 'string' && s.trim().length > 0) : [];
     const chunkSizeStr = await env.KV_NAMESPACE.get(KV_KEYS.chunkSize);
     const chunkSize = chunkSizeStr ? parseInt(chunkSizeStr, 10) : 400;
+    const base64EncodeStr = await env.KV_NAMESPACE.get(KV_KEYS.base64Encode);
+    const shouldBase64Encode = base64EncodeStr === '1';
+
+    // Check if base64 setting changed (to force update all chunks)
+    const lastBase64Setting = await env.KV_NAMESPACE.get('last_base64_setting');
+    const base64SettingChanged = lastBase64Setting !== base64EncodeStr;
+    if (base64SettingChanged) {
+        await env.KV_NAMESPACE.put('last_base64_setting', base64EncodeStr || '0');
+    }
+
+
 
     let ok = 0, fail = 0;
     const texts: string[] = [];
@@ -86,7 +97,19 @@ export async function runUpdate(env: Env): Promise<RefreshResult> {
     const chunkLineCounts: number[] = [];
     for (let i = 0; i < encodedLines.length; i += chunkSize) {
         const slice = encodedLines.slice(i, i + chunkSize);
-        const part = slice.join('\n');
+        let part = slice.join('\n');
+
+        // Base64 encode if enabled
+        if (shouldBase64Encode) {
+            const encoder = new TextEncoder();
+            const bytes = encoder.encode(part);
+            let binary = '';
+            for (let j = 0; j < bytes.length; j++) {
+                binary += String.fromCharCode(bytes[j]);
+            }
+            part = btoa(binary);
+        }
+
         chunks.push(part);
         chunkLineCounts.push(slice.length);
     }
@@ -99,7 +122,8 @@ export async function runUpdate(env: Env): Promise<RefreshResult> {
         const content = chunks[i];
         const etag = await sha256Hex(content);
         const existing = await env.KV_NAMESPACE.get(KV_KEYS.etagI(i + 1));
-        if (existing !== etag) {
+        // Force update if base64 setting changed or etag changed
+        if (base64SettingChanged || existing !== etag) {
             await env.KV_NAMESPACE.put(KV_KEYS.subTxtI(i + 1), content);
             await env.KV_NAMESPACE.put(KV_KEYS.etagI(i + 1), etag);
             changedChunks.push(i + 1);
@@ -123,6 +147,13 @@ export async function runUpdate(env: Env): Promise<RefreshResult> {
     await env.KV_NAMESPACE.put(KV_KEYS.lastStats, JSON.stringify(debugInfo));
 
     const updated = changedChunks.length > 0 || oldTotal !== newTotal;
+
+    // Purge edge cache for all chunks if content changed
+    if (updated) {
+        console.log('Purging edge cache for', newTotal, 'chunks');
+        // Note: Cloudflare edge cache will be purged by ETag mismatch on next request
+        // The cache uses request URL as key, so new ETag will cause cache miss
+    }
 
     return {
         updated,
