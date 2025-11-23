@@ -1,7 +1,7 @@
 // Subscription parsing skeleton. Full implementation will follow in step 2.
 
 export type NormalizedRecord = {
-    type: 'vmess' | 'vless' | 'trojan' | 'ss';
+    type: 'vmess' | 'vless' | 'trojan' | 'ss' | 'hysteria2';
     server: string;
     port: number;
     servername?: string;
@@ -13,6 +13,11 @@ export type NormalizedRecord = {
     reality?: boolean;
     name?: string;
     tag?: string;
+    // hysteria2 specific
+    obfs?: string;
+    obfsPassword?: string;
+    insecure?: boolean;
+    pinSHA256?: string;
 };
 
 export function safeBase64Decode(input: string): string | null {
@@ -64,6 +69,7 @@ export function parseUriToRecord(uri: string): NormalizedRecord | null {
         if (scheme === 'vless') return parseVless(uri);
         if (scheme === 'trojan') return parseTrojan(uri);
         if (scheme === 'ss') return parseSS(uri);
+        if (scheme === 'hysteria2' || scheme === 'hy2') return parseHysteria2(uri);
         return null;
     } catch {
         return null;
@@ -80,6 +86,8 @@ export function encodeRecordToUri(rec: NormalizedRecord): string {
             return encodeTrojan(rec);
         case 'ss':
             return encodeSS(rec);
+        case 'hysteria2':
+            return encodeHysteria2(rec);
     }
 }
 
@@ -226,4 +234,49 @@ function encodeSS(rec: NormalizedRecord): string {
     }
     // Fallback: no method known; emit minimal host:port with tag (may be ignored by clients, but avoids invalid placeholder)
     return `ss://${rec.server}:${rec.port}${frag ? '#' + encodeURIComponent(frag) : ''}`;
+}
+
+// -------- hysteria2 --------
+function parseHysteria2(uri: string): NormalizedRecord | null {
+    // Format: hysteria2://password@host:port?obfs=...&obfs-password=...&sni=...&insecure=1#tag
+    // Also accept hy2:// as alias
+    const normalized = uri.replace(/^hy2:\/\//, 'hysteria2://');
+    const u = new URL(normalized);
+    const server = u.hostname.toLowerCase();
+    const port = Number(u.port || 0);
+    const password = decodeURIComponent(u.username || '');
+    if (!server || !port || !password) return null;
+
+    const sni = u.searchParams.get('sni') || '';
+    const obfs = u.searchParams.get('obfs') || undefined;
+    const obfsPassword = u.searchParams.get('obfs-password') || undefined;
+    const insecure = u.searchParams.get('insecure') === '1';
+    const pinSHA256 = u.searchParams.get('pinSHA256') || undefined;
+    const name = u.hash ? decodeURIComponent(u.hash.slice(1)) : '';
+
+    return {
+        type: 'hysteria2',
+        server,
+        port,
+        password,
+        sni,
+        servername: sni,
+        obfs,
+        obfsPassword,
+        insecure,
+        pinSHA256,
+        name,
+        tag: name,
+    };
+}
+
+function encodeHysteria2(rec: NormalizedRecord): string {
+    const q = new URLSearchParams();
+    if (rec.sni || rec.servername) q.set('sni', rec.sni || rec.servername || '');
+    if (rec.obfs) q.set('obfs', rec.obfs);
+    if (rec.obfsPassword) q.set('obfs-password', rec.obfsPassword);
+    if (rec.insecure) q.set('insecure', '1');
+    if (rec.pinSHA256) q.set('pinSHA256', rec.pinSHA256);
+    const frag = rec.name || rec.tag || '';
+    return `hysteria2://${encodeURIComponent(rec.password || '')}@${rec.server}:${rec.port}${q.toString() ? '?' + q.toString() : ''}${frag ? '#' + encodeURIComponent(frag) : ''}`;
 }
