@@ -1,0 +1,10 @@
+name = "sub-filter"
+compatibility_date = "2025-11-01"
+pages_build_output_dir = "public"
+
+[[kv_namespaces]]
+binding = "KV_NAMESPACE"
+id = "ad6d853f8cdf483a80203a9886f7ae8b"
+
+[observability]
+enabled = true
