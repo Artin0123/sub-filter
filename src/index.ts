@@ -125,7 +125,11 @@ async function handleSubChunk(request: Request, env: Env, index: number): Promis
 async function handleAdminPage(request: Request, env: Env): Promise<Response> {
 	const loggedIn = await requireLogin(request, env);
 	const file = loggedIn ? '/admin.html' : '/login-page.html';
-	return env.ASSETS.fetch(new URL(file, request.url));
+	const url = new URL(file, request.url);
+	if (env.ASSETS && typeof env.ASSETS.fetch === 'function') {
+		return env.ASSETS.fetch(url);
+	}
+	return fetch(url);
 }
 
 async function parseBody(req: Request): Promise<Record<string, any>> {
@@ -298,7 +302,10 @@ export default {
 
 		// Static files (CSS, JS, HTML)
 		if (pathname === '/admin.css' || pathname === '/admin.js' || pathname === '/login.js' || pathname === '/login-page.html' || pathname === '/admin.html') {
-			return env.ASSETS.fetch(request);
+			if (env.ASSETS && typeof env.ASSETS.fetch === 'function') {
+				return env.ASSETS.fetch(request);
+			}
+			return fetch(request);
 		}
 
 		// Public subscription endpoints (chunked only)
