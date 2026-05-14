@@ -54,7 +54,7 @@ function clearSessionCookie(): string {
 async function requireLogin(req: Request, env: Env): Promise<boolean> {
 	const cookie = getCookie(req, 'session');
 	if (!cookie) return false;
-	const secret = env.ADMIN_PASSWORD;
+	const secret = env.ADMIN_KEY;
 	if (!secret) return false;
 	try {
 		const payload = await verifyCookie(secret, cookie);
@@ -64,15 +64,11 @@ async function requireLogin(req: Request, env: Env): Promise<boolean> {
 	}
 }
 
-async function generateSubscriptionToken(password: string): Promise<string> {
-	const hash = await sha256Hex(password);
-	return hash.substring(0, 16);
-}
-
 async function handleSubChunk(request: Request, env: Env, index: number): Promise<Response> {
 	const url = new URL(request.url);
 	const token = url.searchParams.get('token');
-	const validToken = await generateSubscriptionToken(env.ADMIN_PASSWORD || '');
+	const validToken = await generateSubscriptionToken(env.ADMIN_KEY || '');
+
 
 	if (!token || !(await constantTimeEqual(token, validToken))) {
 		return new Response('Unauthorized', { status: 401 });
@@ -130,12 +126,23 @@ async function handleAdminLogin(request: Request, env: Env): Promise<Response> {
 	const clientIP = request.headers.get('CF-Connecting-IP') || 'unknown';
 	if (!checkRateLimit(clientIP, 5, 60000)) return new Response('Too Many Requests', { status: 429 });
 	const body = await parseBody(request);
-	if (!env.ADMIN_PASSWORD) return new Response('ADMIN_PASSWORD not configured', { status: 500 });
-	const ok = typeof body.password === 'string' && body.password === env.ADMIN_PASSWORD;
+	if (!env.ADMIN_KEY) return new Response('ADMIN_KEY not configured', { status: 500 });
+	const ok = typeof body.password === 'string' && body.password === env.ADMIN_KEY;
 	if (!ok) return new Response('Unauthorized', { status: 401 });
-	const token = await signCookie(env.ADMIN_PASSWORD, { sub: 'admin', exp: Math.floor(Date.now() / 1000) + 86400 });
+	const token = await signCookie(env.ADMIN_KEY, { sub: 'admin', exp: Math.floor(Date.now() / 1000) + 86400 });
 	return new Response('OK', { headers: { 'set-cookie': setSessionCookie(token) } });
 }
+
+async function handleAdminConfigGet(request: Request, env: Env): Promise<Response> {
+	if (!(await requireLogin(request, env))) return new Response('Unauthorized', { status: 401 });
+	const chunkSizeStr = await env.KV_NAMESPACE.get(KV_KEYS.chunkSize);
+	const chunk_size = chunkSizeStr ? parseInt(chunkSizeStr, 10) : 400;
+	const base64EncodeStr = await env.KV_NAMESPACE.get(KV_KEYS.base64Encode);
+	const base64_encode = base64EncodeStr === '1';
+	const subscription_token = await generateSubscriptionToken(env.ADMIN_KEY || '');
+	return new Response(JSON.stringify({ chunk_size, base64_encode, subscription_token }), { headers: { 'content-type': 'application/json' } });
+}
+
 
 async function handleAdminLogout(): Promise<Response> {
 	return new Response('OK', { headers: { 'set-cookie': clearSessionCookie() } });
