@@ -178,16 +178,6 @@ async function handleAdminRemove(request: Request, env: Env): Promise<Response> 
 	return new Response('OK');
 }
 
-async function handleAdminConfigGet(request: Request, env: Env): Promise<Response> {
-	if (!(await requireLogin(request, env))) return new Response('Unauthorized', { status: 401 });
-	const chunkSizeStr = await env.KV_NAMESPACE.get(KV_KEYS.chunkSize);
-	const chunk_size = chunkSizeStr ? parseInt(chunkSizeStr, 10) : 400;
-	const base64EncodeStr = await env.KV_NAMESPACE.get(KV_KEYS.base64Encode);
-	const base64_encode = base64EncodeStr === '1';
-	const subscription_token = await generateSubscriptionToken(env.ADMIN_PASSWORD || '');
-	return new Response(JSON.stringify({ chunk_size, base64_encode, subscription_token }), { headers: { 'content-type': 'application/json' } });
-}
-
 async function handleAdminConfigPost(request: Request, env: Env): Promise<Response> {
 	if (!(await requireLogin(request, env))) return new Response('Unauthorized', { status: 401 });
 	const body = await parseBody(request);
