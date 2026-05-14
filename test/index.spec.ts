@@ -7,8 +7,8 @@ const IncomingRequest = Request<unknown, IncomingRequestCfProperties>;
 
 describe('Root admin page', () => {
 	it('responds with Admin Login when not authenticated', async () => {
-		const response = await SELF.fetch('https://example.com/');
-		const txt = await response.text();
-		expect(txt).toMatch(/Admin Login/);
+		const response = await SELF.fetch('https://example.com/', { redirect: 'manual' });
+		expect(response.status).toBe(302);
+		expect(response.headers.get('Location')).toContain('/login-page.html');
 	});
 });
