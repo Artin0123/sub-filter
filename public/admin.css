@@ -124,6 +124,12 @@ ol li a.source-link {
     color: var(--link);
     text-decoration: none;
     min-width: 0;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
+    line-clamp: 3;
+    text-overflow: ellipsis;
+    overflow: hidden;
 }
 
 ol li a.source-link:hover {

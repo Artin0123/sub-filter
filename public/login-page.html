@@ -9,6 +9,9 @@
     </head>
 
     <body>
+        <script>
+            try { if (localStorage.getItem('theme') === 'dark') document.body.classList.add('dark'); } catch { }
+        </script>
         <h1>Admin Login</h1>
         <div class="card">
             <form id="login-form" class="row">

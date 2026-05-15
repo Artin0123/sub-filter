@@ -9,7 +9,7 @@
     </head>
 
     <body>
-        <button id="theme-toggle" title="Toggle theme">Dark</button>
+        <button id="theme-toggle" type="button" title="Toggle theme" aria-label="Toggle theme">🌙</button>
         <h1>Admin Console</h1>
         <div class="row" style="margin-bottom:12px">
             <form id="logout-form" style="margin:0"><button type="submit">Logout</button></form>
@@ -30,9 +30,10 @@
             <div class="card">
                 <h3>Sources</h3>
                 <div class="row" style="margin-bottom:8px">
-                    <input type="text" id="source-input" placeholder="Source URL (supports inline:..., data:...)" />
+                    <input type="text" id="source-input" maxlength="4096" placeholder="Source URL (supports inline:..., data:...)" />
                     <button id="add">Add</button>
                 </div>
+                <div id="source-msg" style="margin-bottom:8px;color:#c00;min-height:18px"></div>
                 <ol id="sources"></ol>
             </div>
             <div class="card">

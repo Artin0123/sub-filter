@@ -1,0 +1,7 @@
+name = "sub-filter-vitest"
+compatibility_date = "2025-11-01"
+
+[env.production]
+kv_namespaces = [
+  { binding = "KV_NAMESPACE", id = "00000000000000000000000000000000" },
+]

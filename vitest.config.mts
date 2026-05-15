@@ -5,7 +5,8 @@ export default defineConfig({
 	plugins: [
 		cloudflareTest({
 			main: './src/index.ts',
-			wrangler: { configPath: './.local/wrangler.toml', environment: 'production' },
+			// Keep tests self-contained; `.local/` is an optional local snapshot and not available in CI/clean clones.
+			wrangler: { configPath: './wrangler.vitest.toml', environment: 'production' },
 			miniflare: {
 				bindings: {
 					ADMIN_PASSWORD: 'test-admin-password',
