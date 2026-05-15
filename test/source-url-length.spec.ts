@@ -29,7 +29,7 @@ describe('Source URL length guard', () => {
 			body: new URLSearchParams({ url: tooLong }),
 		});
 
-		expect(res.status).toBe(500);
+		expect(res.status).toBe(400);
 		const json = (await res.json()) as any;
 		expect(json.error).toBe('input_too_long');
 		expect(String(json.message)).toContain('长');
