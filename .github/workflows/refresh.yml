@@ -49,8 +49,14 @@ jobs:
           EOF
           )
 
-          echo "Calling $REFRESH_URL"
-          HTTP_CODE=$(curl -sS -X POST "$REFRESH_URL" \
+          REFRESH_ENDPOINT="${REFRESH_URL%/}"
+          case "$REFRESH_ENDPOINT" in
+            */refresh) ;;
+            *) REFRESH_ENDPOINT="$REFRESH_ENDPOINT/refresh" ;;
+          esac
+
+          echo "Calling $REFRESH_ENDPOINT"
+          HTTP_CODE=$(curl -sS -X POST "$REFRESH_ENDPOINT" \
             -H "Authorization: Bearer $BEARER_TOKEN" \
             -H "Content-Length: 0" \
             -o resp.json \
