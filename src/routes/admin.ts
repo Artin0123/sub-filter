@@ -27,7 +27,7 @@ export async function handleAdminAdd(request: Request, env: AppEnv): Promise<Res
 	} catch (e) {
 		if (e instanceof InputTooLongError) {
 			return new Response(JSON.stringify({ error: 'input_too_long', message: e.message }), {
-				status: 500,
+				status: 400,
 				headers: { 'content-type': 'application/json' },
 			});
 		}
