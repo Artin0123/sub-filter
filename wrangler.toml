@@ -1,6 +1,7 @@
 name = "sub-filter"
 compatibility_date = "2025-11-01"
 pages_build_output_dir = "public"
+main = "src/index.ts"
 
 [[kv_namespaces]]
 binding = "KV_NAMESPACE"
