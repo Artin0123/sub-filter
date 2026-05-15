@@ -1,18 +1,22 @@
 // 管理後台前端邏輯。
 // 這裡統一處理 401 跳回登入頁，避免 session 過期後各按鈕靜默失敗。
 const THEME_LABELS = {
-	light: 'Dark',
-	dark: 'Light',
+	// Show the icon for the *target* theme (same behavior as the old "Dark/Light" labels).
+	light: '🌙',
+	dark: '☀️',
 };
 
 function redirectToLogin() {
 	location.href = '/login-page.html';
 }
 
+const MAX_SOURCE_URL_LENGTH = 4096;
+
 const themeBtn = document.getElementById('theme-toggle');
 
 function setThemeButtonLabel(isDark) {
 	themeBtn.textContent = isDark ? THEME_LABELS.dark : THEME_LABELS.light;
+	themeBtn.title = isDark ? 'Switch to light mode' : 'Switch to dark mode';
 }
 
 const theme = localStorage.getItem('theme') || 'light';
@@ -78,6 +82,7 @@ async function loadList() {
 		const a = document.createElement('a');
 		a.href = u;
 		a.textContent = u;
+		a.title = u;
 		a.target = '_blank';
 		a.className = 'source-link';
 
@@ -137,6 +142,12 @@ document.getElementById('debug-btn').addEventListener('click', () => {
 document.getElementById('add').addEventListener('click', async () => {
 	const url = document.getElementById('source-input').value.trim();
 	if (!url) return;
+	const msg = document.getElementById('source-msg');
+	if (url.length > MAX_SOURCE_URL_LENGTH) {
+		msg.textContent = '输入太长';
+		return;
+	}
+	msg.textContent = '';
 	const body = new URLSearchParams({ url });
 	const r = await fetch('/add', { method: 'POST', body });
 	if (r.status === 401) {
@@ -145,8 +156,12 @@ document.getElementById('add').addEventListener('click', async () => {
 	}
 	if (r.ok) {
 		document.getElementById('source-input').value = '';
+		msg.textContent = '';
 		loadList();
+		return;
 	}
+	const j = await r.json().catch(() => ({}));
+	msg.textContent = j && (j.message || j.error) ? (j.message || j.error) : 'Failed';
 });
 
 document.getElementById('save-cfg').addEventListener('click', async () => {

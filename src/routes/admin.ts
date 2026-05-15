@@ -4,7 +4,7 @@ import { parseBody } from '../lib/http';
 import { getAdminConfig, updateAdminConfig } from '../services/config';
 import { refreshSubscriptions } from '../services/refresh';
 import { requireLogin } from '../services/session';
-import { addSource, listSources, removeSource } from '../services/source-store';
+import { addSource, InputTooLongError, listSources, removeSource } from '../services/source-store';
 
 export async function handleAdminConfigGet(request: Request, env: AppEnv): Promise<Response> {
 	if (!(await requireLogin(request, env))) return new Response('Unauthorized', { status: 401 });
@@ -22,7 +22,17 @@ export async function handleAdminAdd(request: Request, env: AppEnv): Promise<Res
 	const url = String(body.url || '').trim();
 	if (!url) return new Response('Bad Request', { status: 400 });
 	// 來源去重和持久化放在 service 層，route 只做請求校驗。
-	await addSource(env, url);
+	try {
+		await addSource(env, url);
+	} catch (e) {
+		if (e instanceof InputTooLongError) {
+			return new Response(JSON.stringify({ error: 'input_too_long', message: e.message }), {
+				status: 500,
+				headers: { 'content-type': 'application/json' },
+			});
+		}
+		throw e;
+	}
 	return new Response('OK');
 }
 
