@@ -50,6 +50,10 @@ document.getElementById('copy-url').addEventListener('click', async () => {
 
 async function loadList() {
     const r = await fetch('/list');
+    if (r.status === 401) {
+        location.href = '/login-page.html';
+        return;
+    }
     const arr = await r.json();
     const ul = document.getElementById('sources');
     ul.innerHTML = '';
@@ -83,6 +87,10 @@ async function loadList() {
 
 async function loadConfig() {
     const r = await fetch('/config');
+    if (r.status === 401) {
+        location.href = '/login-page.html';
+        return;
+    }
     const cfg = await r.json();
     document.getElementById('chunk-size').value = cfg.chunk_size ?? 400;
     document.getElementById('base64-encode').checked = cfg.base64_encode ?? false;
@@ -92,6 +100,10 @@ async function loadConfig() {
 async function loadChunksTotal() {
     try {
         const r = await fetch('/debug');
+        if (r.status === 401) {
+            location.href = '/login-page.html';
+            return;
+        }
         if (r.ok) {
             const data = await r.json();
             totalChunks = Math.max(1, parseInt(data.last_stats?.chunkLineCounts?.length || 1));
@@ -140,6 +152,10 @@ document.getElementById('refresh').addEventListener('click', async () => {
     const s = document.getElementById('status');
     s.textContent = 'Refreshing...';
     const r = await fetch('/refresh', { method: 'POST' });
+    if (r.status === 401) {
+        location.href = '/login-page.html';
+        return;
+    }
     const j = (await r.json().catch(() => ({})));
     const parts = [];
     if (r.ok) {

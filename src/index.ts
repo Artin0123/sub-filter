@@ -52,9 +52,21 @@ function clearSessionCookie(): string {
 }
 
 async function requireLogin(req: Request, env: Env): Promise<boolean> {
+	const authHeader = req.headers.get('Authorization');
+	if (authHeader && authHeader.startsWith('Bearer ')) {
+		const token = authHeader.substring(7);
+		const secret = env.ADMIN_PASSWORD;
+		if (secret) {
+			try {
+				const payload = await verifyCookie(secret, token);
+				if (payload && payload.sub === 'admin') return true;
+			} catch {}
+		}
+	}
+
 	const cookie = getCookie(req, 'session');
 	if (!cookie) return false;
-	const secret = env.ADMIN_KEY;
+	const secret = env.ADMIN_PASSWORD;
 	if (!secret) return false;
 	try {
 		const payload = await verifyCookie(secret, cookie);
@@ -64,10 +76,21 @@ async function requireLogin(req: Request, env: Env): Promise<boolean> {
 	}
 }
 
+async function generateSubscriptionToken(password: string): Promise<string> {
+	const data = new TextEncoder().encode(password);
+	const digest = await crypto.subtle.digest('SHA-256', data);
+	const bytes = new Uint8Array(digest);
+	let hex = '';
+	for (let i = 0; i < bytes.length; i++) {
+		hex += bytes[i].toString(16).padStart(2, '0');
+	}
+	return hex.substring(0, 16);
+}
+
 async function handleSubChunk(request: Request, env: Env, index: number): Promise<Response> {
 	const url = new URL(request.url);
 	const token = url.searchParams.get('token');
-	const validToken = await generateSubscriptionToken(env.ADMIN_KEY || '');
+	const validToken = await generateSubscriptionToken(env.ADMIN_PASSWORD || '');
 
 
 	if (!token || !(await constantTimeEqual(token, validToken))) {
@@ -126,10 +149,10 @@ async function handleAdminLogin(request: Request, env: Env): Promise<Response> {
 	const clientIP = request.headers.get('CF-Connecting-IP') || 'unknown';
 	if (!checkRateLimit(clientIP, 5, 60000)) return new Response('Too Many Requests', { status: 429 });
 	const body = await parseBody(request);
-	if (!env.ADMIN_KEY) return new Response('ADMIN_KEY not configured', { status: 500 });
-	const ok = typeof body.password === 'string' && body.password === env.ADMIN_KEY;
+	if (!env.ADMIN_PASSWORD) return new Response('ADMIN_PASSWORD not configured', { status: 500 });
+	const ok = typeof body.password === 'string' && body.password === env.ADMIN_PASSWORD;
 	if (!ok) return new Response('Unauthorized', { status: 401 });
-	const token = await signCookie(env.ADMIN_KEY, { sub: 'admin', exp: Math.floor(Date.now() / 1000) + 86400 });
+	const token = await signCookie(env.ADMIN_PASSWORD, { sub: 'admin', exp: Math.floor(Date.now() / 1000) + 86400 });
 	return new Response('OK', { headers: { 'set-cookie': setSessionCookie(token) } });
 }
 
@@ -139,7 +162,7 @@ async function handleAdminConfigGet(request: Request, env: Env): Promise<Respons
 	const chunk_size = chunkSizeStr ? parseInt(chunkSizeStr, 10) : 400;
 	const base64EncodeStr = await env.KV_NAMESPACE.get(KV_KEYS.base64Encode);
 	const base64_encode = base64EncodeStr === '1';
-	const subscription_token = await generateSubscriptionToken(env.ADMIN_KEY || '');
+	const subscription_token = await generateSubscriptionToken(env.ADMIN_PASSWORD || '');
 	return new Response(JSON.stringify({ chunk_size, base64_encode, subscription_token }), { headers: { 'content-type': 'application/json' } });
 }
 
@@ -214,6 +237,14 @@ export default {
 		const subMatch = pathname.match(/^\/sub_(\d+)$/);
 		if (subMatch) return handleSubChunk(request, env, parseInt(subMatch[1], 10));
 
+		if (pathname === '/' || pathname === '/index.html') {
+			if (!(await requireLogin(request, env))) {
+				return Response.redirect(new URL('/login-page.html', request.url).toString(), 302);
+			}
+			// When authenticated, fallback to serving static asset
+			return env.ASSETS.fetch(request);
+		}
+
 		switch (pathname) {
 			case '/login': return request.method === 'POST' ? handleAdminLogin(request, env) : new Response('Method Not Allowed', { status: 405 });
 			case '/logout': return handleAdminLogout();
@@ -224,8 +255,8 @@ export default {
 			case '/refresh': return handleRefresh(request, env);
 			case '/debug': return handleDebug(request, env);
 			default:
-				// Return 404 to let Pages Middleware handle static files or index.html
-				return new Response('Not Found', { status: 404 });
+				// Return env.ASSETS.fetch(request) to let Pages Middleware handle static files like /admin.css or /admin.js
+				return env.ASSETS.fetch(request);
 		}
 	},
 } satisfies ExportedHandler<Env>;

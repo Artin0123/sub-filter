@@ -3,8 +3,8 @@
 	"version": "0.0.0",
 	"private": true,
 	"scripts": {
-		"deploy": "wrangler deploy",
-		"dev": "wrangler dev",
+		"deploy": "wrangler pages deploy",
+		"dev": "wrangler pages dev",
 		"test": "vitest --run",
 		"compare:sample": "node scripts/compare-sample.mjs",
 		"cf-typegen": "wrangler types"

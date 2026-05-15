@@ -1,6 +1,6 @@
 # sub-filter
 
-Cloudflare Workers 訂閱合併與分塊服務。整合多個來源訂閱（vmess/vless/trojan/ss），自動去重並產生分塊輸出，支援 ETag/304 與邊緣快取。
+Cloudflare Pages 訂閱合併與分塊服務。整合多個來源訂閱（vmess/vless/trojan/ss），自動去重並產生分塊輸出，支援 ETag/304 與邊緣快取。
 
 ## 核心功能
 
@@ -24,7 +24,7 @@ Cloudflare Workers 訂閱合併與分塊服務。整合多個來源訂閱（vmes
 echo "ADMIN_PASSWORD=your_password_here" > .dev.vars
 ```
 
-**生產環境**（Cloudflare Workers）：
+**生產環境**（Cloudflare Pages）：
 ```bash
 wrangler secret put ADMIN_PASSWORD
 # 輸入你的密碼
@@ -73,7 +73,7 @@ npm run deploy
 
 | Secret 名稱      | 說明                           | 範例                                               |
 | ---------------- | ------------------------------ | -------------------------------------------------- |
-| `REFRESH_URL`    | 你的 Worker 的 `/refresh` 端點 | `https://sub-filter.your-name.workers.dev/refresh` |
+| `REFRESH_URL`    | 你的 Worker 的 `/refresh` 端點 | `https://sub-filter.your-name.pages.dev/refresh` |
 | `ADMIN_PASSWORD` | 與 Worker 相同的管理密碼       | `your_password_here`                               |
 
 **注意**：
@@ -98,7 +98,7 @@ npm run deploy
 
 ## 架構
 
-**平台**：Cloudflare Workers + Workers KV
+**平台**：Cloudflare Pages + Workers KV
 
 **主要模組**（`src/`）：
 - `index.ts` - 路由與管理面板
