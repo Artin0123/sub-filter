@@ -165,5 +165,6 @@ dist
 .env*
 !.env.example
 .wrangler/
+.local/
 
 sample

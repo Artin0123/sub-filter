@@ -3,17 +3,18 @@
 	"version": "0.0.0",
 	"private": true,
 	"scripts": {
-		"deploy": "wrangler pages deploy",
-		"dev": "wrangler pages dev",
+		"deploy": "wrangler pages deploy public --project-name sub-filter",
+		"dev": "wrangler pages dev public --compatibility-date=2025-11-01 --kv=KV_NAMESPACE",
+		"cf:sync-config": "powershell -NoProfile -Command \"New-Item -ItemType Directory -Force .local | Out-Null; Push-Location .local; ..\\node_modules\\.bin\\wrangler.cmd pages download config sub-filter --force; $content = Get-Content wrangler.toml -Raw; $content = [regex]::Replace($content, '(?ms)^\\[vars\\]\\r?\\n.*?(?=^\\[|\\z)', ''); Set-Content wrangler.toml $content; Pop-Location\"",
 		"test": "vitest --run",
 		"compare:sample": "node scripts/compare-sample.mjs",
-		"cf-typegen": "wrangler types"
+		"cf:typegen": "wrangler types --config .local/wrangler.toml --env production"
 	},
 	"devDependencies": {
-		"@cloudflare/vitest-pool-workers": "^0.10.10",
-		"@types/node": "^24.10.1",
-		"typescript": "^5.9.3",
-		"vitest": "~3.2.4",
-		"wrangler": "^4.50.0"
+		"@cloudflare/vitest-pool-workers": "^0.16.5",
+		"@types/node": "^25.7.0",
+		"typescript": "^6.0.3",
+		"vitest": "^4.1.6",
+		"wrangler": "^4.91.0"
 	}
 }

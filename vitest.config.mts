@@ -1,12 +1,16 @@
-import { defineWorkersConfig } from '@cloudflare/vitest-pool-workers/config';
+import { cloudflareTest } from '@cloudflare/vitest-pool-workers';
+import { defineConfig } from 'vitest/config';
 
-export default defineWorkersConfig({
-	test: {
-		poolOptions: {
-			workers: {
-				main: './src/index.ts',
-				wrangler: { configPath: './wrangler.toml' },
+export default defineConfig({
+	plugins: [
+		cloudflareTest({
+			main: './src/index.ts',
+			wrangler: { configPath: './.local/wrangler.toml', environment: 'production' },
+			miniflare: {
+				bindings: {
+					ADMIN_PASSWORD: 'test-admin-password',
+				},
 			},
-		},
-	},
+		}),
+	],
 });
