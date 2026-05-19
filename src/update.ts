@@ -3,7 +3,7 @@ import { fetchWithRetry } from './fetchers';
 import { sha256Hex } from './hash';
 import { KV_KEYS } from './kv';
 import type { AppEnv } from './lib/env';
-import { encodeRecordToUri, maybeDecodeBulkBase64, parseSubscriptionText, parseUriToRecord, type NormalizedRecord } from './subscription';
+import { maybeDecodeBulkBase64, parseSubscriptionText, parseUriToRecord, type NormalizedRecord } from './subscription';
 
 export type RefreshResult = {
 	updated: boolean;
@@ -89,9 +89,9 @@ export async function runUpdate(env: AppEnv): Promise<RefreshResult> {
 		}
 	}
 
-	// 去重後再重新編碼，確保輸出格式統一，chunk 內容也反映最終可用列表。
+	// 去重後直接輸出原始 URI，避免改動節點本身的連線參數。
 	const unique = dedupRecords(records);
-	const encodedLines = unique.map((record) => encodeRecordToUri(record));
+	const encodedLines = unique.map((record) => record.rawUri);
 
 	const chunks: string[] = [];
 	const chunkLineCounts: number[] = [];

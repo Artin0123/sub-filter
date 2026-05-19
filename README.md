@@ -1,6 +1,6 @@
 # sub-filter
 
-Cloudflare Pages 訂閱聚合與分塊服務。支援多個來源的代理 URI 聚合、去重、重新編碼，並提供受保護的管理後台。
+Cloudflare Pages 訂閱聚合與分塊服務。支援多個來源的代理 URI 聚合、去重與分塊輸出，並提供受保護的管理後台。
 
 ## 目前架構
 
@@ -128,7 +128,7 @@ wrangler pages deploy public --project-name sub-filter
 2. 判斷是否為批量 Base64 訂閱
 3. 逐行解析代理 URI
 4. 去重
-5. 依 `chunk_size` 分塊輸出
+5. 保留原始 URI 並依 `chunk_size` 分塊輸出
 
 ## 測試
 

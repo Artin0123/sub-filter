@@ -3,10 +3,22 @@ import { env, SELF } from 'cloudflare:test';
 
 const IncomingRequest = Request<unknown, IncomingRequestCfProperties>;
 
+const vmessRaw = 'vmess://' + btoa(JSON.stringify({
+    add: 'example.com',
+    port: 443,
+    id: '22222222-2222-2222-2222-222222222222',
+    sni: 'example.com',
+    host: 'cdn.example.com',
+    path: '/ws',
+    net: 'ws',
+    tls: 'tls',
+    ps: 'vm1',
+}));
+
 const inlineBody = [
-    'vless://11111111-1111-1111-1111-111111111111@example.com:443?sni=example.com#vl1',
+    'vless://11111111-1111-1111-1111-111111111111@example.com:443?security=reality&sni=example.com&pbk=test-key&sid=abcd&fp=chrome&type=tcp#vl1',
     'trojan://pass@example.com:443?sni=example.com#tr1',
-    'vmess://' + btoa(JSON.stringify({ add: 'example.com', port: 443, id: '22222222-2222-2222-2222-222222222222', sni: 'example.com', tls: 'tls', ps: 'vm1' })),
+    vmessRaw,
 ].join('\n');
 
 async function generateToken(password: string): Promise<string> {
@@ -68,5 +80,9 @@ describe('Refresh update flow (inline source)', () => {
         // Read sub_1 with token
         const res3 = await SELF.fetch(`https://example.com/sub_1?token=${token}`);
         expect(res3.status).toBe(200); // should exist after refresh
+        const text = await res3.text();
+        expect(text).toContain('security=reality');
+        expect(text).toContain('pbk=test-key');
+        expect(text).toContain(vmessRaw);
     });
 });

@@ -1,7 +1,8 @@
-// 訂閱內容解析與重新編碼。
-// 這一層把不同協議 URI 正規化成統一結構，再轉回輸出格式。
+// 訂閱內容解析。
+// 這一層只抽出去重與統計需要的欄位，並保留原始 URI 供最終輸出。
 export type NormalizedRecord = {
 	type: 'vmess' | 'vless' | 'trojan' | 'ss' | 'hysteria2';
+	rawUri: string;
 	server: string;
 	port: number;
 	servername?: string;
@@ -102,7 +103,7 @@ function parseVmess(uri: string): NormalizedRecord | null {
 	const sni = String(obj.sni || obj.host || '');
 	const tls = obj.tls ? String(obj.tls).toLowerCase() === 'tls' || obj.tls === true : false;
 	const name = String(obj.ps || obj.name || obj.tag || '');
-	return { type: 'vmess', server, port, uuid, sni, servername: sni, tls, name, tag: name };
+	return { type: 'vmess', rawUri: uri, server, port, uuid, sni, servername: sni, tls, name, tag: name };
 }
 
 function encodeVmess(rec: NormalizedRecord): string {
@@ -129,7 +130,7 @@ function parseVless(uri: string): NormalizedRecord | null {
 	const tls = u.protocol === 'vless:' && (u.searchParams.get('security') === 'tls' || u.searchParams.get('security') === 'reality' || u.searchParams.get('tls') === '1');
 	const name = u.hash ? decodeURIComponent(u.hash.slice(1)) : '';
 	if (!server || !port) return null;
-	return { type: 'vless', server, port, uuid, sni, servername: sni, tls, name, tag: name };
+	return { type: 'vless', rawUri: uri, server, port, uuid, sni, servername: sni, tls, name, tag: name };
 }
 
 function encodeVless(rec: NormalizedRecord): string {
@@ -151,7 +152,7 @@ function parseTrojan(uri: string): NormalizedRecord | null {
 	const sni = u.searchParams.get('sni') || u.searchParams.get('host') || '';
 	const name = u.hash ? decodeURIComponent(u.hash.slice(1)) : '';
 	if (!server || !port) return null;
-	return { type: 'trojan', server, port, password, sni, servername: sni, tls: true, name, tag: name };
+	return { type: 'trojan', rawUri: uri, server, port, password, sni, servername: sni, tls: true, name, tag: name };
 }
 
 function encodeTrojan(rec: NormalizedRecord): string {
@@ -212,7 +213,7 @@ function parseSS(uri: string): NormalizedRecord | null {
 		}
 	}
 	if (!server || !port) return null;
-	return { type: 'ss', server, port, method, password, name, tag: name };
+	return { type: 'ss', rawUri: uri, server, port, method, password, name, tag: name };
 }
 
 function encodeSS(rec: NormalizedRecord): string {
@@ -241,6 +242,7 @@ function parseHysteria2(uri: string): NormalizedRecord | null {
 
 	return {
 		type: 'hysteria2',
+		rawUri: uri,
 		server,
 		port,
 		password,
