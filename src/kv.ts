@@ -8,6 +8,10 @@ export const KV_KEYS = {
 	etagI: (i: number) => `etag_${i}`,
 	lastUpdatedISO: 'last_updated_iso',
 	lastStats: 'last_stats',
+	// 上次刷新使用的 base64 設定；切換時必須強制重寫所有分塊。
+	lastBase64Setting: 'last_base64_setting',
+	// 訂閱端點使用的獨立 token，與 ADMIN_PASSWORD 解耦。
+	subscriptionToken: 'subscription_token',
+	// 刷新鎖（盡力而為，KV 為最終一致性），避免 cron 與手動刷新同時寫入。
+	refreshStartedAt: 'refresh_started_at',
 } as const;
-
-// 目前不保留額外 helper，讓 key surface 維持最小。

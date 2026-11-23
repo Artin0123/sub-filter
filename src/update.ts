@@ -1,16 +1,20 @@
 import { dedupRecords } from './dedup';
-import { fetchWithRetry } from './fetchers';
+import { fetchSource } from './fetchers';
 import { sha256Hex } from './hash';
 import { KV_KEYS } from './kv';
+import { mapWithConcurrency } from './lib/async';
 import type { AppEnv } from './lib/env';
-import { maybeDecodeBulkBase64, parseSubscriptionText, parseUriToRecord, type NormalizedRecord } from './subscription';
+import { normalizeChunkSize } from './services/config';
+import { maybeDecodeBulkBase64, parseSubscriptionText, parseUriToRecord, safeBase64EncodeUtf8, type NormalizedRecord } from './subscription';
 
 export type RefreshResult = {
 	updated: boolean;
 	records: number;
 	chunks: { total: number; size: number };
 	perSource: { ok: number; fail: number };
-	changed: { byChunk: number[] };
+	// 失敗來源的原因，避免只看到一個 fail 計數而不知道為什麼。
+	failedSources: { url: string; error: string }[];
+	changedChunks: number[];
 	debug?: {
 		linesTotal: number;
 		parsedByScheme: Record<string, number>;
@@ -20,54 +24,59 @@ export type RefreshResult = {
 	};
 };
 
+// 外部來源抓取上限：避免一次打爆遠端站點，也避免 Worker 等待過久。
+const SOURCE_CONCURRENCY = 5;
+// KV 寫入併發上限：夠快，又不會把配額用量瞬間打滿。
+const KV_WRITE_CONCURRENCY = 5;
+// 分塊 hash 是純 CPU 工作，併發一點即可。
+const HASH_CONCURRENCY = 8;
+// Cloudflare KV 單次多鍵 get 上限是 100 個 key，超過必須分批。
+const KV_MULTI_GET_LIMIT = 100;
+const KV_MULTI_GET_CONCURRENCY = 3;
+
+async function readExistingEtags(env: AppEnv, keys: string[]): Promise<Map<string, string | null>> {
+	const merged = new Map<string, string | null>();
+	if (keys.length === 0) return merged;
+
+	const batches: string[][] = [];
+	for (let i = 0; i < keys.length; i += KV_MULTI_GET_LIMIT) {
+		batches.push(keys.slice(i, i + KV_MULTI_GET_LIMIT));
+	}
+
+	const results = await mapWithConcurrency(batches, KV_MULTI_GET_CONCURRENCY, (batch) =>
+		env.KV_NAMESPACE.get(batch, 'text'),
+	);
+	for (const batch of results) {
+		for (const [key, value] of batch) merged.set(key, value);
+	}
+	return merged;
+}
+
 export async function runUpdate(env: AppEnv): Promise<RefreshResult> {
 	const sources = (await env.KV_NAMESPACE.get(KV_KEYS.sources, { type: 'json' })) as string[] | null;
 	const urls = Array.isArray(sources) ? sources.filter((s) => typeof s === 'string' && s.trim().length > 0) : [];
-	const chunkSizeStr = await env.KV_NAMESPACE.get(KV_KEYS.chunkSize);
-	const chunkSize = chunkSizeStr ? parseInt(chunkSizeStr, 10) : 400;
-	const base64EncodeStr = await env.KV_NAMESPACE.get(KV_KEYS.base64Encode);
-	const shouldBase64Encode = base64EncodeStr === '1';
+	const chunkSize = normalizeChunkSize(await env.KV_NAMESPACE.get(KV_KEYS.chunkSize));
+	const shouldBase64Encode = (await env.KV_NAMESPACE.get(KV_KEYS.base64Encode)) === '1';
 
 	// Base64 開關切換時，必須強制重寫所有分塊；否則內容格式改了但 ETag 不一定全更新。
-	const lastBase64Setting = await env.KV_NAMESPACE.get('last_base64_setting');
-	const base64SettingChanged = lastBase64Setting !== base64EncodeStr;
-	if (base64SettingChanged) {
-		await env.KV_NAMESPACE.put('last_base64_setting', base64EncodeStr || '0');
-	}
+	// 第一次執行（KV 還沒有旗標）也算一次變更，順便建立旗標。
+	const currentBase64Setting = shouldBase64Encode ? '1' : '0';
+	const lastBase64Setting = await env.KV_NAMESPACE.get(KV_KEYS.lastBase64Setting);
+	const base64SettingChanged = lastBase64Setting !== currentBase64Setting;
 
+	const fetched = await mapWithConcurrency(urls, SOURCE_CONCURRENCY, (url) => fetchSource(url));
 	let ok = 0;
 	let fail = 0;
 	const texts: string[] = [];
-
-	// 外部來源抓取限制併發數，避免一次打爆遠端站點或讓 Worker 等待過長。
-	const concurrency = 5;
-	for (let i = 0; i < urls.length; i += concurrency) {
-		const batch = urls.slice(i, i + concurrency);
-		const results = await Promise.all(batch.map(async (u) => {
-			if (u.startsWith('inline:')) {
-				return { url: u, ok: true, status: 200, text: u.slice('inline:'.length) };
-			}
-			if (u.startsWith('data:')) {
-				try {
-					const comma = u.indexOf(',');
-					const isBase64 = /;base64,/.test(u.slice(0, comma + 1));
-					const payload = u.slice(comma + 1);
-					const text = isBase64 ? atob(payload) : decodeURIComponent(payload);
-					return { url: u, ok: true, status: 200, text };
-				} catch (e) {
-					return { url: u, ok: false, status: 0, error: String(e) } as const;
-				}
-			}
-			return fetchWithRetry(u);
-		}));
-
-		for (const r of results) {
-			if (r.ok && r.text) {
-				ok++;
-				texts.push(r.text);
-			} else {
-				fail++;
-			}
+	const failedSources: { url: string; error: string }[] = [];
+	for (const result of fetched) {
+		// 空內容也是「抓取成功」，只是沒有節點；不可計入 fail。
+		if (result.ok && result.text !== undefined) {
+			ok++;
+			if (result.text) texts.push(result.text);
+		} else {
+			fail++;
+			failedSources.push({ url: result.url, error: result.error ?? `http_${result.status}` });
 		}
 	}
 
@@ -97,46 +106,41 @@ export async function runUpdate(env: AppEnv): Promise<RefreshResult> {
 	const chunkLineCounts: number[] = [];
 	for (let i = 0; i < encodedLines.length; i += chunkSize) {
 		const slice = encodedLines.slice(i, i + chunkSize);
-		let part = slice.join('\n');
-
-		if (shouldBase64Encode) {
-			const encoder = new TextEncoder();
-			const bytes = encoder.encode(part);
-			let binary = '';
-			for (let j = 0; j < bytes.length; j++) {
-				binary += String.fromCharCode(bytes[j]);
-			}
-			part = btoa(binary);
-		}
-
-		chunks.push(part);
+		const joined = slice.join('\n');
+		chunks.push(shouldBase64Encode ? safeBase64EncodeUtf8(joined) : joined);
 		chunkLineCounts.push(slice.length);
 	}
 
 	const newTotal = chunks.length;
-	const oldTotalStr = await env.KV_NAMESPACE.get(KV_KEYS.chunksTotal);
-	const oldTotal = oldTotalStr ? parseInt(oldTotalStr, 10) : 0;
+	const oldTotal = parseInt((await env.KV_NAMESPACE.get(KV_KEYS.chunksTotal)) ?? '0', 10) || 0;
+
+	// 先分批讀回所有既有 ETag，再決定哪些分塊真的要寫。
+	const etagKeys = chunks.map((_, i) => KV_KEYS.etagI(i + 1));
+	const existingEtags = await readExistingEtags(env, etagKeys);
+	const newEtags = await mapWithConcurrency(chunks, HASH_CONCURRENCY, (content) => sha256Hex(content));
 
 	const changedChunks: number[] = [];
-	for (let i = 0; i < newTotal; i++) {
-		const content = chunks[i];
-		const etag = await sha256Hex(content);
-		const existing = await env.KV_NAMESPACE.get(KV_KEYS.etagI(i + 1));
-
+	for (let i = 0; i < chunks.length; i++) {
 		// 只有 ETag 變化或 Base64 設定切換時才重寫，減少 KV 寫入量。
-		if (base64SettingChanged || existing !== etag) {
-			await env.KV_NAMESPACE.put(KV_KEYS.subTxtI(i + 1), content);
-			await env.KV_NAMESPACE.put(KV_KEYS.etagI(i + 1), etag);
+		if (base64SettingChanged || (existingEtags.get(etagKeys[i]) ?? null) !== newEtags[i]) {
 			changedChunks.push(i + 1);
 		}
 	}
 
+	// 先寫內容再寫 ETag：讀者若在中途進來，只會看到「舊 ETag + 新內容」，
+	// 下一次請求就會因為 ETag 不符而重抓，不會把新內容配上新 ETag 快取起來。
+	await mapWithConcurrency(changedChunks, KV_WRITE_CONCURRENCY, async (n) => {
+		await env.KV_NAMESPACE.put(KV_KEYS.subTxtI(n), chunks[n - 1]);
+		await env.KV_NAMESPACE.put(KV_KEYS.etagI(n), newEtags[n - 1]);
+	});
+
 	// 當來源變少時，需要清掉多出來的舊分塊，否則舊 URL 仍然可讀。
 	if (oldTotal > newTotal) {
-		for (let j = newTotal + 1; j <= oldTotal; j++) {
-			await env.KV_NAMESPACE.delete(KV_KEYS.subTxtI(j));
-			await env.KV_NAMESPACE.delete(KV_KEYS.etagI(j));
-		}
+		const stale = Array.from({ length: oldTotal - newTotal }, (_, i) => newTotal + i + 1);
+		await mapWithConcurrency(stale, KV_WRITE_CONCURRENCY, async (n) => {
+			await env.KV_NAMESPACE.delete(KV_KEYS.subTxtI(n));
+			await env.KV_NAMESPACE.delete(KV_KEYS.etagI(n));
+		});
 	}
 
 	await env.KV_NAMESPACE.put(KV_KEYS.chunksTotal, String(newTotal));
@@ -146,19 +150,19 @@ export async function runUpdate(env: AppEnv): Promise<RefreshResult> {
 	const debugInfo = { linesTotal, parsedByScheme, failedByScheme, duplicates, chunkLineCounts };
 	await env.KV_NAMESPACE.put(KV_KEYS.lastStats, JSON.stringify(debugInfo));
 
-	const updated = changedChunks.length > 0 || oldTotal !== newTotal;
-
-	// 這裡不主動呼叫 purge API，而是依賴新 ETag 讓下一次請求自然失效舊快取。
-	if (updated) {
-		console.log('Purging edge cache for', newTotal, 'chunks');
+	// 這個旗標一定要在分塊全部寫成功之後才更新：
+	// 若中途失敗就提前翻新，下一次刷新會誤以為「編碼沒變」而不重寫，導致內容永久停在舊編碼。
+	if (base64SettingChanged) {
+		await env.KV_NAMESPACE.put(KV_KEYS.lastBase64Setting, currentBase64Setting);
 	}
 
 	return {
-		updated,
+		updated: changedChunks.length > 0 || oldTotal !== newTotal,
 		records: unique.length,
 		chunks: { total: newTotal, size: chunkSize },
 		perSource: { ok, fail },
-		changed: { byChunk: changedChunks },
+		failedSources,
+		changedChunks,
 		debug: debugInfo,
 	};
 }

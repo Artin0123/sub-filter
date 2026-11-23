@@ -18,7 +18,25 @@ export type NormalizedRecord = {
 	obfsPassword?: string;
 	insecure?: boolean;
 	pinSHA256?: string;
+	// 傳輸層指紋：把不進主要判重鍵、但會影響節點可用性的參數（net / path / pbk / plugin …）
+	// 正規化成一條字串。沒有它的話，同一組 server/port/uuid/sni 的 ws 與 tcp 節點會被誤判成重複。
+	variant?: string;
 };
+
+const NAME_KEYS = new Set(['ps', 'name', 'tag', 'remark', 'remarks']);
+
+// 把 key/value 清單正規化成穩定字串（排序 + 字串化），供 variant 使用。
+function canonicalParams(entries: Iterable<[string, unknown]>): string {
+	const pairs: [string, string][] = [];
+	for (const [k, v] of entries) pairs.push([k, String(v ?? '')]);
+	pairs.sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
+	return pairs.map(([k, v]) => `${k}=${v}`).join('&');
+}
+
+// URLSearchParams 的迭代順序即 query 出現順序，排序後才適合當指紋。
+function variantOfUrlSearchParams(params: URLSearchParams): string {
+	return canonicalParams(params.entries());
+}
 
 export function safeBase64Decode(input: string): string | null {
 	try {
@@ -74,6 +92,8 @@ export function parseUriToRecord(uri: string): NormalizedRecord | null {
 	}
 }
 
+// 下列 encode* 只用於測試與離線比對（生產流程輸出 rawUri），
+// 且是「有損」轉換：例如 vmess 只會輸出 tcp/none，不會保留 ws/grpc 參數。
 export function encodeRecordToUri(rec: NormalizedRecord): string {
 	switch (rec.type) {
 		case 'vmess':
@@ -103,7 +123,8 @@ function parseVmess(uri: string): NormalizedRecord | null {
 	const sni = String(obj.sni || obj.host || '');
 	const tls = obj.tls ? String(obj.tls).toLowerCase() === 'tls' || obj.tls === true : false;
 	const name = String(obj.ps || obj.name || obj.tag || '');
-	return { type: 'vmess', rawUri: uri, server, port, uuid, sni, servername: sni, tls, name, tag: name };
+	const variant = canonicalParams(Object.entries(obj).filter(([k]) => !NAME_KEYS.has(k)));
+	return { type: 'vmess', rawUri: uri, server, port, uuid, sni, servername: sni, tls, name, tag: name, variant };
 }
 
 function encodeVmess(rec: NormalizedRecord): string {
@@ -130,7 +151,19 @@ function parseVless(uri: string): NormalizedRecord | null {
 	const tls = u.protocol === 'vless:' && (u.searchParams.get('security') === 'tls' || u.searchParams.get('security') === 'reality' || u.searchParams.get('tls') === '1');
 	const name = u.hash ? decodeURIComponent(u.hash.slice(1)) : '';
 	if (!server || !port) return null;
-	return { type: 'vless', rawUri: uri, server, port, uuid, sni, servername: sni, tls, name, tag: name };
+	return {
+		type: 'vless',
+		rawUri: uri,
+		server,
+		port,
+		uuid,
+		sni,
+		servername: sni,
+		tls,
+		name,
+		tag: name,
+		variant: variantOfUrlSearchParams(u.searchParams),
+	};
 }
 
 function encodeVless(rec: NormalizedRecord): string {
@@ -152,7 +185,19 @@ function parseTrojan(uri: string): NormalizedRecord | null {
 	const sni = u.searchParams.get('sni') || u.searchParams.get('host') || '';
 	const name = u.hash ? decodeURIComponent(u.hash.slice(1)) : '';
 	if (!server || !port) return null;
-	return { type: 'trojan', rawUri: uri, server, port, password, sni, servername: sni, tls: true, name, tag: name };
+	return {
+		type: 'trojan',
+		rawUri: uri,
+		server,
+		port,
+		password,
+		sni,
+		servername: sni,
+		tls: true,
+		name,
+		tag: name,
+		variant: variantOfUrlSearchParams(u.searchParams),
+	};
 }
 
 function encodeTrojan(rec: NormalizedRecord): string {
@@ -174,15 +219,15 @@ function parseSS(uri: string): NormalizedRecord | null {
 	}
 	const main = hashIdx >= 0 ? raw.slice(0, hashIdx) : raw;
 	if (main.includes('@')) {
-		const [left, right] = main.split('@');
-		creds = left;
-		hostport = right;
+		const atIdx = main.lastIndexOf('@');
+		creds = main.slice(0, atIdx);
+		hostport = main.slice(atIdx + 1);
 	} else {
 		const decoded = safeBase64Decode(main) || '';
 		if (decoded.includes('@')) {
-			const [left, right] = decoded.split('@');
-			creds = left;
-			hostport = right;
+			const atIdx = decoded.lastIndexOf('@');
+			creds = decoded.slice(0, atIdx);
+			hostport = decoded.slice(atIdx + 1);
 		} else {
 			creds = decoded;
 		}
@@ -204,8 +249,12 @@ function parseSS(uri: string): NormalizedRecord | null {
 	}
 	let server = '';
 	let port = 0;
+	// ss 的 plugin/obfs 參數放在 '?' 之後，會影響節點行為，必須進 variant。
+	let query = '';
 	if (hostport) {
-		const hp = hostport.split('?', 1)[0];
+		const qIdx = hostport.indexOf('?');
+		const hp = qIdx >= 0 ? hostport.slice(0, qIdx) : hostport;
+		if (qIdx >= 0) query = hostport.slice(qIdx + 1);
 		const m = hp.match(/^\[?([^\]]+)\]?:([0-9]+)$/);
 		if (m) {
 			server = m[1].toLowerCase();
@@ -213,7 +262,17 @@ function parseSS(uri: string): NormalizedRecord | null {
 		}
 	}
 	if (!server || !port) return null;
-	return { type: 'ss', rawUri: uri, server, port, method, password, name, tag: name };
+	return {
+		type: 'ss',
+		rawUri: uri,
+		server,
+		port,
+		method,
+		password,
+		name,
+		tag: name,
+		variant: query ? variantOfUrlSearchParams(new URLSearchParams(query)) : '',
+	};
 }
 
 function encodeSS(rec: NormalizedRecord): string {
@@ -226,7 +285,7 @@ function encodeSS(rec: NormalizedRecord): string {
 }
 
 function parseHysteria2(uri: string): NormalizedRecord | null {
-	const normalized = uri.replace(/^hy2:\/\//, 'hysteria2://');
+	const normalized = uri.replace(/^hy2:\/\//i, 'hysteria2://');
 	const u = new URL(normalized);
 	const server = u.hostname.toLowerCase();
 	const port = Number(u.port || 0);
@@ -254,6 +313,7 @@ function parseHysteria2(uri: string): NormalizedRecord | null {
 		pinSHA256,
 		name,
 		tag: name,
+		variant: variantOfUrlSearchParams(u.searchParams),
 	};
 }
 

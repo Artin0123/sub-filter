@@ -28,6 +28,20 @@ describe('subscription parsing', () => {
         expect(rec?.port).toBe(8388);
     });
 
+    it('parses ss with @ in password and uppercase HY2 scheme', () => {
+        const ssAt = parseUriToRecord('ss://aes-256-gcm:p@ss@e.test:8388#at-pass');
+        expect(ssAt?.type).toBe('ss');
+        expect(ssAt?.method).toBe('aes-256-gcm');
+        expect(ssAt?.password).toBe('p@ss');
+        expect(ssAt?.server).toBe('e.test');
+        expect(ssAt?.port).toBe(8388);
+
+        const hy2Upper = parseUriToRecord('HY2://secret@server.test:8443?sni=server.test#upper');
+        expect(hy2Upper?.type).toBe('hysteria2');
+        expect(hy2Upper?.server).toBe('server.test');
+        expect(hy2Upper?.port).toBe(8443);
+    });
+
     it('rejects malformed URIs', () => {
         expect(parseUriToRecord('vmess://not-json')).toBeNull();
         expect(parseUriToRecord('vless://missing')).toBeNull();

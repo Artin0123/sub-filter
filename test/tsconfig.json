@@ -2,7 +2,7 @@
 	"extends": "../tsconfig.json",
 	"compilerOptions": {
 		"types": [
-			"@cloudflare/vitest-pool-workers",
+			"@cloudflare/vitest-plugin/types",
 			"vitest",
 			"node"
 		]

@@ -7,7 +7,7 @@ export type AuthCookiePayload = {
 	exp: number;
 };
 
-function toBase64Url(data: ArrayBuffer | Uint8Array): string {
+export function toBase64Url(data: ArrayBuffer | Uint8Array): string {
 	const bytes = data instanceof Uint8Array ? data : new Uint8Array(data);
 	let str = '';
 	for (let i = 0; i < bytes.length; i++) str += String.fromCharCode(bytes[i]);
