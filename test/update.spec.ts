@@ -1,7 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { env, SELF } from 'cloudflare:test';
-
-const IncomingRequest = Request<unknown, IncomingRequestCfProperties>;
+import { adminBearer, inlineSource, subscriptionToken } from './helpers';
 
 const vmessRaw = 'vmess://' + btoa(JSON.stringify({
     add: 'example.com',
@@ -21,61 +20,28 @@ const inlineBody = [
     vmessRaw,
 ].join('\n');
 
-async function generateToken(password: string): Promise<string> {
-    const data = new TextEncoder().encode(password);
-    const digest = await crypto.subtle.digest('SHA-256', data);
-    const bytes = new Uint8Array(digest);
-    let hex = '';
-    for (let i = 0; i < bytes.length; i++) {
-        hex += bytes[i].toString(16).padStart(2, '0');
-    }
-    return hex.substring(0, 16);
-}
-
-async function generateBearerToken(password: string): Promise<string> {
-    // Generate HMAC-signed token (same as signCookie in auth.ts)
-    const encoder = new TextEncoder();
-    const key = await crypto.subtle.importKey(
-        'raw',
-        encoder.encode(password),
-        { name: 'HMAC', hash: 'SHA-256' },
-        false,
-        ['sign']
-    );
-
-    const payload = { sub: 'admin', exp: Math.floor(Date.now() / 1000) + 3600 };
-    const body = encoder.encode(JSON.stringify(payload));
-    const sig = await crypto.subtle.sign({ name: 'HMAC' }, key, body);
-
-    // Base64url encode
-    const toBase64Url = (data: ArrayBuffer | Uint8Array): string => {
-        const bytes = data instanceof Uint8Array ? data : new Uint8Array(data);
-        let str = '';
-        for (let i = 0; i < bytes.length; i++) str += String.fromCharCode(bytes[i]);
-        return btoa(str).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
-    };
-
-    return `${toBase64Url(body)}.${toBase64Url(sig)}`;
+async function refresh(): Promise<any> {
+    const res = await SELF.fetch('https://example.com/refresh', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${await adminBearer()}` },
+    });
+    expect(res.status).toBe(200);
+    return res.json();
 }
 
 describe('Refresh update flow (inline source)', () => {
     it('updates KV and serves chunk endpoints', async () => {
         // Seed KV
-        await env.KV_NAMESPACE.put('sources', JSON.stringify([`inline:${inlineBody}`]));
+        await env.KV_NAMESPACE.put('sources', JSON.stringify([inlineSource(inlineBody)]));
         await env.KV_NAMESPACE.put('chunk_size', '2');
+        await env.KV_NAMESPACE.put('base64_encode', '0');
 
-        // Trigger refresh via Bearer
-        const bearerToken = await generateBearerToken(env.ADMIN_PASSWORD);
-        const res = await SELF.fetch('https://example.com/refresh', {
-            method: 'POST',
-            headers: { Authorization: `Bearer ${bearerToken}` },
-        });
-        expect(res.status).toBe(200);
-        const json = (await res.json()) as any;
+        const json = await refresh();
         expect(json.records).toBeGreaterThan(0);
         expect(json.chunks.total).toBeGreaterThan(0);
+        expect(json.failedSources).toEqual([]);
 
-        const token = await generateToken(env.ADMIN_PASSWORD);
+        const token = await subscriptionToken();
 
         // Read sub_1 with token
         const res3 = await SELF.fetch(`https://example.com/sub_1?token=${token}`);
@@ -89,5 +55,25 @@ describe('Refresh update flow (inline source)', () => {
         expect(res4.status).toBe(200);
         const text2 = await res4.text();
         expect(text2).toContain(vmessRaw);
+    });
+
+    it('counts an empty but successful source as ok', async () => {
+        await env.KV_NAMESPACE.put('sources', JSON.stringify([inlineSource('')]));
+        await env.KV_NAMESPACE.put('chunk_size', '400');
+
+        const json = await refresh();
+        expect(json.perSource).toEqual({ ok: 1, fail: 0 });
+        expect(json.failedSources).toEqual([]);
+        expect(json.records).toBe(0);
+        expect(json.chunks.total).toBe(0);
+    });
+
+    it('reports why a source failed instead of only counting it', async () => {
+        await env.KV_NAMESPACE.put('sources', JSON.stringify(['ftp://example.com/sub', inlineSource(inlineBody)]));
+
+        const json = await refresh();
+        expect(json.perSource).toEqual({ ok: 1, fail: 1 });
+        expect(json.failedSources).toEqual([{ url: 'ftp://example.com/sub', error: 'unsupported_scheme' }]);
+        expect(json.records).toBeGreaterThan(0);
     });
 });

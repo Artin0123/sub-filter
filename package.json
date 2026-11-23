@@ -7,7 +7,7 @@
 		"dev": "wrangler pages dev public --compatibility-date=2025-11-01 --kv=KV_NAMESPACE",
 		"cf:sync-config": "powershell -NoProfile -Command \"New-Item -ItemType Directory -Force .local | Out-Null; Push-Location .local; ..\\node_modules\\.bin\\wrangler.cmd pages download config sub-filter --force; $content = Get-Content wrangler.toml -Raw; $content = [regex]::Replace($content, '(?ms)^\\[vars\\]\\r?\\n.*?(?=^\\[|\\z)', ''); Set-Content wrangler.toml $content; Pop-Location\"",
 		"test": "vitest --run",
-		"compare:sample": "node scripts/compare-sample.mjs",
+		"typecheck": "tsc --noEmit && tsc -p test/tsconfig.json --noEmit",
 		"cf:typegen": "wrangler types --config .local/wrangler.toml --env production"
 	},
 	"devDependencies": {

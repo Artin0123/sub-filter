@@ -1,81 +1,59 @@
 import { describe, it, expect } from 'vitest';
 import { env, SELF } from 'cloudflare:test';
-
-const IncomingRequest = Request<unknown, IncomingRequestCfProperties>;
+import { adminBearer, inlineSource, subscriptionToken } from './helpers';
 
 const makeInline = () => [
-    'vless://11111111-1111-1111-1111-111111111111@h1.test:443?sni=h1.test#v1',
-    'trojan://p1@h2.test:443?sni=h2.test#t1',
-    'vmess://' + btoa(JSON.stringify({ add: 'h3.test', port: 443, id: '22222222-2222-2222-2222-222222222222', sni: 'h3.test', tls: 'tls', ps: 'm1' })),
-    'vless://33333333-3333-3333-3333-333333333333@h4.test:443?sni=h4.test#v2',
-    'trojan://p2@h5.test:443?sni=h5.test#t2',
+	'vless://11111111-1111-1111-1111-111111111111@h1.test:443?sni=h1.test#v1',
+	'trojan://p1@h2.test:443?sni=h2.test#t1',
+	'vmess://' + btoa(JSON.stringify({ add: 'h3.test', port: 443, id: '22222222-2222-2222-2222-222222222222', sni: 'h3.test', tls: 'tls', ps: 'm1' })),
+	'vless://33333333-3333-3333-3333-333333333333@h4.test:443?sni=h4.test#v2',
+	'trojan://p2@h5.test:443?sni=h5.test#t2',
 ].join('\n');
 
-async function generateToken(password: string): Promise<string> {
-    const data = new TextEncoder().encode(password);
-    const digest = await crypto.subtle.digest('SHA-256', data);
-    const bytes = new Uint8Array(digest);
-    let hex = '';
-    for (let i = 0; i < bytes.length; i++) {
-        hex += bytes[i].toString(16).padStart(2, '0');
-    }
-    return hex.substring(0, 16);
-}
-
-async function generateBearerToken(password: string): Promise<string> {
-    // Generate HMAC-signed token (same as signCookie in auth.ts)
-    const encoder = new TextEncoder();
-    const key = await crypto.subtle.importKey(
-        'raw',
-        encoder.encode(password),
-        { name: 'HMAC', hash: 'SHA-256' },
-        false,
-        ['sign']
-    );
-
-    const payload = { sub: 'admin', exp: Math.floor(Date.now() / 1000) + 3600 };
-    const body = encoder.encode(JSON.stringify(payload));
-    const sig = await crypto.subtle.sign({ name: 'HMAC' }, key, body);
-
-    // Base64url encode
-    const toBase64Url = (data: ArrayBuffer | Uint8Array): string => {
-        const bytes = data instanceof Uint8Array ? data : new Uint8Array(data);
-        let str = '';
-        for (let i = 0; i < bytes.length; i++) str += String.fromCharCode(bytes[i]);
-        return btoa(str).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
-    };
-
-    return `${toBase64Url(body)}.${toBase64Url(sig)}`;
-}
-
 describe('Cache/ETag flow', () => {
-    it('returns 304 on If-None-Match for chunk endpoints; index out of range is 404', async () => {
-        await env.KV_NAMESPACE.put('sources', JSON.stringify([`inline:${makeInline()}`]));
-        await env.KV_NAMESPACE.put('chunk_size', '2'); // ensure multiple chunks
+	it('serves quoted ETags and honours If-None-Match variants; out of range is 404', async () => {
+		await env.KV_NAMESPACE.put('sources', JSON.stringify([inlineSource(makeInline())]));
+		await env.KV_NAMESPACE.put('chunk_size', '2'); // ensure multiple chunks
+		await env.KV_NAMESPACE.put('base64_encode', '0');
 
-        // Trigger refresh
-        const bearerToken = await generateBearerToken(env.ADMIN_PASSWORD);
-        const res0 = await SELF.fetch('https://example.com/refresh', {
-            method: 'POST', headers: { Authorization: `Bearer ${bearerToken}` },
-        });
-        expect(res0.status).toBe(200);
+		// Trigger refresh
+		const res0 = await SELF.fetch('https://example.com/refresh', {
+			method: 'POST',
+			headers: { Authorization: `Bearer ${await adminBearer()}` },
+		});
+		expect(res0.status).toBe(200);
 
-        const token = await generateToken(env.ADMIN_PASSWORD);
+		const token = await subscriptionToken();
 
-        // chunk 2
-        const c1 = await SELF.fetch(`https://example.com/sub_2?token=${token}`);
-        expect(c1.status).toBe(200);
-        const etag2 = c1.headers.get('etag');
-        expect(etag2).toBeTruthy();
+		// chunk 2
+		const c1 = await SELF.fetch(`https://example.com/sub_2?token=${token}`);
+		expect(c1.status).toBe(200);
+		const etag = c1.headers.get('etag');
+		// RFC 9110 的 entity-tag 必須帶引號
+		expect(etag).toMatch(/^"[0-9a-f]{64}"$/);
 
-        // chunk 2 304
-        const c2 = await SELF.fetch(`https://example.com/sub_2?token=${token}`, { headers: { 'If-None-Match': etag2! } });
-        expect(c2.status).toBe(304);
+		const notModified = async (value: string) => {
+			const res = await SELF.fetch(`https://example.com/sub_2?token=${token}`, { headers: { 'If-None-Match': value } });
+			return res.status;
+		};
+		expect(await notModified(etag!)).toBe(304);
+		expect(await notModified('*')).toBe(304);
+		// RFC 9110：weak validator 寫成 W/"opaque"
+		expect(await notModified(`W/${etag!}`)).toBe(304);
+		// opaque tag 可以含逗號，所以必須在原始字串上比對，不能先 split(',')
+		expect(await notModified(`"deadbeef", W/${etag!}, "cafe"`)).toBe(304);
+		// 不能因為「包含相同 hex」就誤判：完整的 tag 必須相符
+		expect(await notModified(`"${etag!.slice(1, -1)}ff"`)).toBe(200);
+		expect(await notModified('"0000000000000000000000000000000000000000000000000000000000000000"')).toBe(200);
 
-        // out of range (get chunks_total from KV)
-        const totalStr = await env.KV_NAMESPACE.get('chunks_total');
-        const total = totalStr ? parseInt(totalStr, 10) : 0;
-        const out = await SELF.fetch(`https://example.com/sub_${total + 1}?token=${token}`);
-        expect(out.status).toBe(404);
-    });
+		// out of range (get chunks_total from KV)
+		const totalStr = await env.KV_NAMESPACE.get('chunks_total');
+		const total = totalStr ? parseInt(totalStr, 10) : 0;
+		const out = await SELF.fetch(`https://example.com/sub_${total + 1}?token=${token}`);
+		expect(out.status).toBe(404);
+
+		// token 驗證
+		expect((await SELF.fetch(`https://example.com/sub_1?token=wrong`)).status).toBe(401);
+		expect((await SELF.fetch('https://example.com/sub_1')).status).toBe(401);
+	});
 });

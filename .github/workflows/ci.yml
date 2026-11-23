@@ -1,0 +1,24 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+# 只需要讀取 repo；明確宣告可避免 GITHUB_TOKEN 拿到預設的寫入權限。
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      # tsc 會一併檢查 functions/[[path]].ts（Pages 入口）與 test/
+      - run: npm run typecheck
+      - run: npm run test

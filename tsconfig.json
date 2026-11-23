@@ -34,10 +34,12 @@
 		]
 	},
 	"exclude": [
-		"test"
+		"test",
+		"node_modules"
 	],
 	"include": [
 		"worker-configuration.d.ts",
-		"src/**/*.ts"
+		"src/**/*.ts",
+		"functions/**/*.ts"
 	]
 }

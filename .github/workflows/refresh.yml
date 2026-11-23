@@ -5,6 +5,10 @@ on:
   schedule:
     - cron: "0 */6 * * *"
 
+# 只需要讀取 repo；明確宣告可避免 GITHUB_TOKEN 拿到預設的寫入權限。
+permissions:
+  contents: read
+
 jobs:
   refresh:
     runs-on: ubuntu-latest
@@ -63,6 +67,12 @@ jobs:
             -w '%{http_code}')
 
           echo "HTTP $HTTP_CODE"
+
+          # 409 = 上一次刷新還在進行中（去抖動鎖），不算失敗。
+          if [ "$HTTP_CODE" = "409" ]; then
+            echo "Another refresh is already running; skipping this run."
+            exit 0
+          fi
 
           # Check if request was successful
           if [ "$HTTP_CODE" != "200" ]; then

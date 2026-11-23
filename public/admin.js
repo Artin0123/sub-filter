@@ -6,11 +6,14 @@ const THEME_LABELS = {
 	dark: '☀️',
 };
 
+// 與 src/services/source-store.ts 的 MAX_SOURCE_URL_LENGTH 保持一致。
+const MAX_SOURCE_URL_LENGTH = 4096;
+// 後台只接受這幾種來源格式；不符的直接不給連結，避免把 javascript: 之類的輸入渲染成可點元素。
+const SOURCE_URL_PATTERN = /^(https?:\/\/|inline:|data:)/i;
+
 function redirectToLogin() {
 	location.href = '/login-page.html';
 }
-
-const MAX_SOURCE_URL_LENGTH = 4096;
 
 const themeBtn = document.getElementById('theme-toggle');
 
@@ -56,11 +59,16 @@ document.getElementById('next-chunk').addEventListener('click', () => {
 });
 
 document.getElementById('copy-url').addEventListener('click', async () => {
-	const url = location.origin + '/sub_' + currentChunk + '?token=' + subToken;
-	await navigator.clipboard.writeText(url);
+	const url = location.origin + '/sub_' + currentChunk + '?token=' + encodeURIComponent(subToken);
 	const msg = document.getElementById('copy-msg');
-	msg.textContent = 'URL copied!';
-	msg.style.color = '#0a0';
+	try {
+		await navigator.clipboard.writeText(url);
+		msg.textContent = 'URL copied!';
+		msg.style.color = '#0a0';
+	} catch {
+		msg.textContent = 'Copy failed, please copy manually: ' + url;
+		msg.style.color = '#c00';
+	}
 	setTimeout(() => {
 		msg.textContent = '';
 	}, 2000);
@@ -72,6 +80,10 @@ async function loadList() {
 		redirectToLogin();
 		return;
 	}
+	if (!r.ok) {
+		document.getElementById('source-msg').textContent = 'Failed to load sources (HTTP ' + r.status + ')';
+		return;
+	}
 	const arr = await r.json();
 	const ul = document.getElementById('sources');
 	ul.innerHTML = '';
@@ -79,12 +91,25 @@ async function loadList() {
 		const li = document.createElement('li');
 		li.className = 'source-item';
 
-		const a = document.createElement('a');
-		a.href = u;
-		a.textContent = u;
-		a.title = u;
-		a.target = '_blank';
-		a.className = 'source-link';
+		const content = document.createElement('div');
+		content.className = 'source-content';
+
+		if (SOURCE_URL_PATTERN.test(u)) {
+			const a = document.createElement('a');
+			a.href = u;
+			a.textContent = u;
+			a.title = u;
+			a.target = '_blank';
+			a.rel = 'noopener noreferrer';
+			a.className = 'source-link';
+			content.append(a);
+		} else {
+			const span = document.createElement('span');
+			span.textContent = u;
+			span.title = u;
+			span.className = 'source-link';
+			content.append(span);
+		}
 
 		const btn = document.createElement('button');
 		btn.textContent = 'Remove';
@@ -99,10 +124,7 @@ async function loadList() {
 			if (rr.ok) loadList();
 		});
 
-		const content = document.createElement('div');
-		content.className = 'source-content';
-		content.append(a, btn);
-
+		content.append(btn);
 		li.append(content);
 		ul.append(li);
 	});
@@ -114,24 +136,16 @@ async function loadConfig() {
 		redirectToLogin();
 		return;
 	}
+	if (!r.ok) {
+		document.getElementById('cfg-msg').textContent = 'Failed to load config (HTTP ' + r.status + ')';
+		return;
+	}
 	const cfg = await r.json();
 	document.getElementById('chunk-size').value = cfg.chunk_size ?? 400;
 	document.getElementById('base64-encode').checked = cfg.base64_encode ?? false;
 	subToken = cfg.subscription_token || '';
-}
-
-async function loadChunksTotal() {
-	try {
-		const r = await fetch('/debug');
-		if (r.status === 401) {
-			redirectToLogin();
-			return;
-		}
-		if (r.ok) {
-			const data = await r.json();
-			totalChunks = Math.max(1, Number(data.last_stats?.chunkLineCounts?.length || 1));
-		}
-	} catch {}
+	// 分塊數量直接由 /config 提供，不需要再繞去 /debug 讀統計資料。
+	totalChunks = Math.max(1, Number(cfg.chunks_total || 0));
 	updateChunkNav();
 }
 
@@ -144,7 +158,7 @@ document.getElementById('add').addEventListener('click', async () => {
 	if (!url) return;
 	const msg = document.getElementById('source-msg');
 	if (url.length > MAX_SOURCE_URL_LENGTH) {
-		msg.textContent = '输入太长';
+		msg.textContent = '来源地址过长（上限 ' + MAX_SOURCE_URL_LENGTH + ' 字符）';
 		return;
 	}
 	msg.textContent = '';
@@ -198,17 +212,18 @@ document.getElementById('refresh').addEventListener('click', async () => {
 		return;
 	}
 	const j = await r.json().catch(() => ({}));
-	const parts = [];
 	if (r.ok) {
-		parts.push('Updated: ' + j.updated);
-		parts.push('records=' + j.records);
+		const parts = ['Updated: ' + j.updated, 'records=' + j.records];
 		if (j && j.chunks) {
 			parts.push('chunks=' + j.chunks.total + ' (size=' + j.chunks.size + ')');
-			totalChunks = j.chunks.total || 1;
+			totalChunks = Math.max(1, Number(j.chunks.total || 0));
+			currentChunk = Math.min(currentChunk, totalChunks);
 			updateChunkNav();
 		}
 		if (j && j.perSource) parts.push('sources ok=' + j.perSource.ok + ', fail=' + j.perSource.fail);
 		s.textContent = parts.join(', ');
+	} else if (r.status === 409) {
+		s.textContent = 'Refresh already in progress';
 	} else {
 		s.textContent = 'Failed' + (j && (j.message || j.error) ? ': ' + (j.message || j.error) : '');
 	}
@@ -219,4 +234,3 @@ document.getElementById('refresh').addEventListener('click', async () => {
 
 loadList();
 loadConfig();
-loadChunksTotal();
