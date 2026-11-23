@@ -2,13 +2,9 @@
 
 Cloudflare Pages 訂閱聚合與分塊服務。支援多個來源的代理 URI 聚合、去重與分塊輸出，並提供受保護的管理後台。
 
-## 目前架構
+## 架構
 
-- 平台：Cloudflare Pages + Pages Functions + Workers KV
-- 靜態檔案：`public/`
-- Pages 入口：`functions/[[path]].ts`
-- 路由分發：`src/routes/`
-- 業務邏輯：`src/services/`
+詳細模組分層、請求流程、驗證邊界與去重管線說明請見 [架構說明](docs/architecture.zh-TW.md)。
 
 ## 本地開發
 
@@ -28,7 +24,7 @@ ADMIN_PASSWORD=your-local-password
 ### 2. 啟動本地 Pages
 
 ```bash
-pnpm run dev
+npm run dev
 ```
 
 這會直接用 CLI 參數啟動 `wrangler pages dev`，不依賴 repo 內的 `wrangler.toml`。
@@ -36,8 +32,8 @@ pnpm run dev
 ### 3. 同步線上 bindings 到本地
 
 ```bash
-pnpm run cf:sync-config
-pnpm run cf:typegen
+npm run cf:sync-config
+npm run cf:typegen
 ```
 
 說明：
@@ -75,26 +71,48 @@ KV_NAMESPACE
 ## 常用指令
 
 ```bash
-pnpm run dev
-pnpm run test
-pnpm run cf:sync-config
-pnpm run cf:typegen
-pnpm run deploy
+npm run dev
+npm run test
+npm run cf:sync-config
+npm run cf:typegen
+npm run deploy
 ```
 
 ## 部署
 
+### Pages 專案設定
+
+- 專案名稱：`sub-filter`
+- Build output directory：`public`
+- Functions 入口：`functions/[[path]].ts`
+- 線上設定來源以 Cloudflare Dashboard 為準，不依賴 repo 內的 Wrangler 設定檔。
+
+### 部署前本地確認
+
 ```bash
-pnpm run deploy
+npm run cf:sync-config
+npm run cf:typegen
+npm run test
 ```
 
-目前部署命令是：
+### 部署命令
+
+```bash
+npm run deploy
+```
+
+實際執行：
 
 ```bash
 wrangler pages deploy public --project-name sub-filter
 ```
 
-線上設定來源以 Cloudflare Dashboard 為準，不依賴 repo 內的 Wrangler 設定檔。
+### 部署後檢查
+
+- 未登入訪問 `/` 會跳轉至 `/login-page.html`
+- 登入後可正常進入管理後台
+- `/list`、`/config`、`/refresh` 介面正常
+- `GET /sub_1?token=...` 可正常讀取訂閱內容
 
 ## API
 
@@ -126,18 +144,18 @@ wrangler pages deploy public --project-name sub-filter
 
 1. 抓取來源內容
 2. 判斷是否為批量 Base64 訂閱
-3. 逐行解析代理 URI
-4. 去重
+3. 逐行解析代理 URI（支援 `vmess`、`vless`、`trojan`、`ss`、`hysteria2` / `hy2`；其餘不支援的協議或無效格式會略過並計入 `/debug` 的 `failedByScheme`）
+4. 全局去重（同時涵蓋單一訂閱源內部與跨來源重複，保留最先出現的一筆；依 `type`、小寫 `server`、有效 `port` (1–65535)、小寫 `sni`、`method` 與 `password` / `uuid` 判重，忽略節點名稱備註）
 5. 保留原始 URI 並依 `chunk_size` 分塊輸出
 
 ## 測試
 
 ```bash
-pnpm run test
+npm run test
 ```
 
 測試環境會：
 
-- 使用 `.local/wrangler.toml` 的 production bindings
+- 使用 `wrangler.vitest.toml` 與 `@cloudflare/vitest-plugin` 建立獨立的測試環境
 - 用 Miniflare 注入測試用 `ADMIN_PASSWORD`
-- 不依賴線上 secret 回流
+- 不依賴線上 secret 或 `.local/` 回流

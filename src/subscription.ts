@@ -174,15 +174,15 @@ function parseSS(uri: string): NormalizedRecord | null {
 	}
 	const main = hashIdx >= 0 ? raw.slice(0, hashIdx) : raw;
 	if (main.includes('@')) {
-		const [left, right] = main.split('@');
-		creds = left;
-		hostport = right;
+		const atIdx = main.lastIndexOf('@');
+		creds = main.slice(0, atIdx);
+		hostport = main.slice(atIdx + 1);
 	} else {
 		const decoded = safeBase64Decode(main) || '';
 		if (decoded.includes('@')) {
-			const [left, right] = decoded.split('@');
-			creds = left;
-			hostport = right;
+			const atIdx = decoded.lastIndexOf('@');
+			creds = decoded.slice(0, atIdx);
+			hostport = decoded.slice(atIdx + 1);
 		} else {
 			creds = decoded;
 		}
@@ -226,7 +226,7 @@ function encodeSS(rec: NormalizedRecord): string {
 }
 
 function parseHysteria2(uri: string): NormalizedRecord | null {
-	const normalized = uri.replace(/^hy2:\/\//, 'hysteria2://');
+	const normalized = uri.replace(/^hy2:\/\//i, 'hysteria2://');
 	const u = new URL(normalized);
 	const server = u.hostname.toLowerCase();
 	const port = Number(u.port || 0);

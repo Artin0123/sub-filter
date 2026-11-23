@@ -29,10 +29,11 @@ export async function runUpdate(env: AppEnv): Promise<RefreshResult> {
 	const shouldBase64Encode = base64EncodeStr === '1';
 
 	// Base64 開關切換時，必須強制重寫所有分塊；否則內容格式改了但 ETag 不一定全更新。
+	const currentBase64Setting = shouldBase64Encode ? '1' : '0';
 	const lastBase64Setting = await env.KV_NAMESPACE.get('last_base64_setting');
-	const base64SettingChanged = lastBase64Setting !== base64EncodeStr;
+	const base64SettingChanged = lastBase64Setting !== currentBase64Setting;
 	if (base64SettingChanged) {
-		await env.KV_NAMESPACE.put('last_base64_setting', base64EncodeStr || '0');
+		await env.KV_NAMESPACE.put('last_base64_setting', currentBase64Setting);
 	}
 
 	let ok = 0;

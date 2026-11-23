@@ -11,10 +11,10 @@
 		"cf:typegen": "wrangler types --config .local/wrangler.toml --env production"
 	},
 	"devDependencies": {
-		"@cloudflare/vitest-pool-workers": "^0.16.5",
-		"@types/node": "^25.7.0",
-		"typescript": "^6.0.3",
-		"vitest": "^4.1.6",
-		"wrangler": "^4.91.0"
+		"@cloudflare/vitest-plugin": "^1.9.0",
+		"@types/node": "^26.6.6",
+		"typescript": "^7.0.2",
+		"vitest": "^5.1.1",
+		"wrangler": "^4.166.0"
 	}
 }

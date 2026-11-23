@@ -83,6 +83,11 @@ describe('Refresh update flow (inline source)', () => {
         const text = await res3.text();
         expect(text).toContain('security=reality');
         expect(text).toContain('pbk=test-key');
-        expect(text).toContain(vmessRaw);
+
+        // Read sub_2 with token (chunk_size=2 puts the 3rd record in sub_2)
+        const res4 = await SELF.fetch(`https://example.com/sub_2?token=${token}`);
+        expect(res4.status).toBe(200);
+        const text2 = await res4.text();
+        expect(text2).toContain(vmessRaw);
     });
 });
