@@ -1,7 +1,11 @@
 // 訂閱內容解析。
 // 這一層只抽出去重與統計需要的欄位，並保留原始 URI 供最終輸出。
+// 支援的協議清單（過濾 UI / 後端校驗 / 解析結果共用）。前端 public/admin.js 的 PROTOCOLS 需手動保持一致。
+export const PROTOCOL_TYPES = ['vmess', 'vless', 'trojan', 'ss', 'hysteria2'] as const;
+export type ProtocolType = (typeof PROTOCOL_TYPES)[number];
+
 export type NormalizedRecord = {
-	type: 'vmess' | 'vless' | 'trojan' | 'ss' | 'hysteria2';
+	type: ProtocolType;
 	rawUri: string;
 	server: string;
 	port: number;

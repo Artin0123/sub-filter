@@ -4,6 +4,7 @@ import {
 	handleAdminAdd,
 	handleAdminConfigGet,
 	handleAdminConfigPost,
+	handleAdminFilters,
 	handleAdminList,
 	handleAdminRemove,
 	handleDebug,
@@ -25,6 +26,7 @@ const ROUTES: Record<string, Route> = {
 	'/logout': { methods: ['POST'], handler: () => handleAdminLogout() },
 	'/list': { methods: ['GET'], handler: handleAdminList },
 	'/add': { methods: ['POST'], handler: handleAdminAdd },
+	'/filters': { methods: ['GET', 'POST'], handler: handleAdminFilters },
 	'/remove': { methods: ['POST'], handler: handleAdminRemove },
 	'/config': {
 		methods: ['GET', 'POST'],

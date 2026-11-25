@@ -30,32 +30,32 @@
             </div>
             <div class="card">
                 <h3>Sources</h3>
+                <div class="hint">Use <code>inline:</code> to paste a single node or subscription content directly, e.g.
+                    <code>inline:vmess://...</code></div>
                 <div class="row" style="margin-bottom:8px">
-                    <input type="text" id="source-input" maxlength="4096" placeholder="Source URL (supports inline:..., data:...)" />
+                    <input type="text" id="source-input" maxlength="4096" placeholder="URL, or inline:vmess://..." />
                     <button id="add">Add</button>
                 </div>
-                <div id="source-msg" style="margin-bottom:8px;color:#c00;min-height:18px"></div>
+                <div id="source-msg" class="msg msg-error"></div>
                 <ol id="sources"></ol>
             </div>
             <div class="card">
                 <h3>Config</h3>
-                <div class="row" style="margin-bottom:8px">
-                    <label>chunk_size</label>
+                <div class="field">
+                    <label for="chunk-size">chunk_size</label>
                     <input type="number" id="chunk-size" min="50" max="2000" step="1" />
                 </div>
-                <div class="row" style="margin-bottom:8px">
-                    <label>Base64 encode</label>
+                <div class="field">
+                    <label for="base64-encode">Base64 encode</label>
                     <label class="switch">
                         <input type="checkbox" id="base64-encode">
                         <span class="slider"></span>
                     </label>
                 </div>
-                <div class="row" style="margin-bottom:8px">
+                <div class="field field-actions">
                     <button id="save-cfg">Save</button>
-                    <div id="cfg-msg" style="color:#0a0"></div>
+                    <div id="cfg-msg" class="msg msg-ok"></div>
                 </div>
-                <div style="margin-top:8px;color:var(--status)">Use <code>inline:</code> to paste subscription content
-                    directly for testing.</div>
             </div>
         </div>
         <script src="/admin.js"></script>

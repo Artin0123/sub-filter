@@ -1,7 +1,6 @@
 // 來源抓取封裝。
 // 這裡集中處理「來源 → 文字」的所有細節：scheme 分流、私網位址封鎖、timeout、大小上限與少量 retry，
 // 讓更新管線只需要面對 `fetchSource()` 一個入口。
-import { safeBase64Decode } from './subscription';
 
 export type FetchResult = {
 	url: string;
@@ -13,7 +12,7 @@ export type FetchResult = {
 	retryable?: boolean;
 };
 
-export type SourceKind = 'http' | 'inline' | 'data';
+export type SourceKind = 'http' | 'inline';
 
 export const DEFAULT_TIMEOUT_MS = 10_000;
 // 單一來源的內容上限，避免惡意或異常巨大的回應把 Worker 記憶體打爆。
@@ -24,7 +23,6 @@ const RETRY_DELAY_MS = 300;
 export function classifySource(url: string): SourceKind | null {
 	if (/^https?:\/\//i.test(url)) return 'http';
 	if (/^inline:/i.test(url)) return 'inline';
-	if (/^data:/i.test(url)) return 'data';
 	return null;
 }
 
@@ -155,38 +153,19 @@ export async function fetchWithRetry(url: string, timeoutMs = DEFAULT_TIMEOUT_MS
 	return fetchOnce(url, timeoutMs);
 }
 
-function decodeDataSource(url: string): string | null {
-	const comma = url.indexOf(',');
-	// 沒有逗號的 data: 是畸形輸入，直接視為失敗，避免把整段 metadata 當內容解析。
-	if (comma < 0) return null;
-	const meta = url.slice(0, comma);
-	const payload = url.slice(comma + 1);
-	if (/;base64$/i.test(meta)) return safeBase64Decode(payload);
-	try {
-		return decodeURIComponent(payload);
-	} catch {
-		return null;
-	}
-}
-
 function tooLarge(url: string, text: string): FetchResult | null {
 	if (new TextEncoder().encode(text).byteLength <= MAX_SOURCE_BYTES) return null;
 	return { url, ok: false, status: 0, error: 'too_large', retryable: false };
 }
 
 /**
- * 唯一個來源抓取入口：依 scheme 分流到 inline / data / HTTP。
+ * 唯一個來源抓取入口：依 scheme 分流到 inline / HTTP。
  * 不支援的 scheme 與指向私網的 http(s) 來源都會直接標記失敗，不會落到 `fetch()`。
  */
 export async function fetchSource(url: string, timeoutMs = DEFAULT_TIMEOUT_MS): Promise<FetchResult> {
 	const kind = classifySource(url);
 	if (kind === 'inline') {
 		const text = url.slice('inline:'.length);
-		return tooLarge(url, text) ?? { url, ok: true, status: 200, text };
-	}
-	if (kind === 'data') {
-		const text = decodeDataSource(url);
-		if (text === null) return { url, ok: false, status: 0, error: 'invalid_data_url', retryable: false };
 		return tooLarge(url, text) ?? { url, ok: true, status: 200, text };
 	}
 	if (kind === 'http') {

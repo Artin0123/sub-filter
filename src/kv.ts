@@ -1,6 +1,8 @@
 // 專案使用的 KV key 全部集中在這裡，避免字串散落各處。
 export const KV_KEYS = {
 	sources: 'sources',
+	// 每個來源的協議過濾：{ [url]: ProtocolType[] }，沒有紀錄代表不過濾。
+	sourceFilters: 'source_filters',
 	chunkSize: 'chunk_size',
 	base64Encode: 'base64_encode',
 	chunksTotal: 'chunks_total',

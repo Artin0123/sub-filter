@@ -136,12 +136,6 @@ ol li a.source-link:hover {
     text-decoration: underline;
 }
 
-ol li button.remove-btn {
-    flex-shrink: 0;
-    padding: 4px 8px;
-    font-size: 12px;
-}
-
 code {
     background: var(--code-bg);
     padding: 1px 4px;
@@ -228,7 +222,7 @@ body.dark input:checked+.slider {
 
     button {
         padding: 6px 10px;
-        font-size: 13px;
+        font-size: 14px;
     }
 
     .nav-btn {
@@ -239,4 +233,144 @@ body.dark input:checked+.slider {
     ol {
         padding-left: 20px;
     }
+}
+
+/* Source list rows */
+ol {
+    padding-left: 24px;
+}
+
+ol li.source-item {
+    margin: 0;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--border);
+}
+
+ol li.source-item:last-child {
+    border-bottom: none;
+}
+
+ol li.source-item::marker {
+    color: var(--status);
+    font-size: 14px;
+}
+
+ol li.source-item .source-content {
+    gap: 12px;
+}
+
+.source-actions {
+    display: flex;
+    gap: 6px;
+    flex-shrink: 0;
+}
+
+.source-actions button {
+    min-width: 72px;
+    padding: 5px 10px;
+    font-size: 14px;
+}
+
+/* Modal */
+.modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+}
+
+.modal {
+    width: 320px;
+    max-width: calc(100vw - 32px);
+    padding: 20px 24px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+}
+
+.modal-title {
+    margin: 0 0 6px;
+    font-size: 18px;
+}
+
+.modal-hint {
+    color: var(--status);
+    font-size: 14px;
+    line-height: 1.5;
+    margin-bottom: 14px;
+}
+
+.modal-option {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 10px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 15px;
+}
+
+.modal-option:hover {
+    background: var(--btn-hover);
+}
+
+.modal-option input {
+    width: 16px;
+    height: 16px;
+    margin: 0;
+}
+
+.modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 18px;
+}
+
+.modal-actions button {
+    min-width: 76px;
+}
+
+/* Messages & hints */
+.msg {
+    min-height: 20px;
+    font-size: 14px;
+}
+
+.msg-error {
+    color: #c00;
+    margin-bottom: 4px;
+}
+
+.msg-ok {
+    color: #0a0;
+}
+
+.hint {
+    color: var(--status);
+    font-size: 14px;
+    line-height: 1.5;
+    margin-bottom: 12px;
+}
+
+/* Config form */
+.field {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--border);
+}
+
+.field input[type='number'] {
+    flex: 0 0 120px;
+    padding-right: 4px;
+}
+
+.field-actions {
+    justify-content: flex-start;
+    border-bottom: none;
+    padding-bottom: 0;
 }

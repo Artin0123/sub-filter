@@ -69,7 +69,7 @@
   - 驗證使用常數時間比較；KV 內沒有 token 時一律視為未授權
   - token 與 `ADMIN_PASSWORD` 沒有推導關係：訂閱 URL 外流不等於密碼可被離線破解
 - **來源位址**
-  - scheme 白名單：`http(s)://`、`inline:`、`data:`
+  - scheme 白名單：`http(s)://`、`inline:`
   - `http(s)` 來源在 `addSource()` 與 `fetchSource()` 兩處都會檢查 hostname，
     擋掉 localhost、`*.localhost`、`*.local`、`*.internal`、私有網段、link-local（含雲端 metadata）、
     multicast/reserved，以及 IPv6 unique-local / link-local / multicast / IPv4-mapped
@@ -103,6 +103,7 @@
 | key | 內容 |
 | --- | --- |
 | `sources` | 來源清單（JSON string array） |
+| `source_filters` | 各來源的協議過濾（JSON：`{ [url]: ProtocolType[] }`，無紀錄 = 不過濾） |
 | `chunk_size` | 分塊行數（讀取時經 `normalizeChunkSize()` 正規化） |
 | `base64_encode` | `'1'` = 輸出 Base64 |
 | `last_base64_setting` | 上次成功輸出時使用的編碼設定 |

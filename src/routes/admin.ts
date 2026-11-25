@@ -4,7 +4,7 @@ import { parseBody } from '../lib/http';
 import { CHUNK_SIZE_MAX, CHUNK_SIZE_MIN, getAdminConfig, updateAdminConfig } from '../services/config';
 import { refreshSubscriptions, RefreshInProgressError } from '../services/refresh';
 import { requireLogin } from '../services/session';
-import { addSource, BlockedSourceError, InputTooLongError, listSources, removeSource, UnsupportedSourceError } from '../services/source-store';
+import { addSource, BlockedSourceError, getSourceFilters, InputTooLongError, listSources, removeSource, setSourceFilter, UnsupportedSourceError } from '../services/source-store';
 
 function jsonResponse(body: unknown, status = 200): Response {
 	return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
@@ -53,6 +53,20 @@ export async function handleAdminRemove(request: Request, env: AppEnv): Promise<
 	const url = String(body.url || '').trim();
 	if (!url) return new Response('Bad Request', { status: 400 });
 	await removeSource(env, url);
+	return new Response('OK');
+}
+
+export async function handleAdminFilters(request: Request, env: AppEnv): Promise<Response> {
+	if (!(await requireLogin(request, env))) return unauthorized();
+	if (request.method === 'GET') return jsonResponse(await getSourceFilters(env));
+	const body = await parseBody(request);
+	const url = String(body.url || '').trim();
+	if (!url) return new Response('Bad Request', { status: 400 });
+	const sources = await listSources(env);
+	if (!sources.includes(url)) return new Response('Not Found', { status: 404 });
+	// types 以逗號分隔；空字串代表不過濾。
+	const types = String(body.types || '').split(',').map((t) => t.trim()).filter(Boolean);
+	await setSourceFilter(env, url, types);
 	return new Response('OK');
 }
 

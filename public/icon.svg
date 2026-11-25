@@ -1,4 +1,11 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="sub-filter">
-	<rect width="32" height="32" rx="7" fill="#0969da"/>
-	<path d="M7 6h18l-6 10v10h-6V16z" fill="#fff"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#4f8cff"/>
+      <stop offset="1" stop-color="#7c4dff"/>
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="14" fill="url(#g)"/>
+  <!-- funnel -->
+  <path d="M14 16h36a2 2 0 0 1 1.5 3.3L38 35v13a2 2 0 0 1-3 1.7l-7-4.2a2 2 0 0 1-1-1.7V35L12.500 19.300A2 2 0 0 1 14 16z" fill="#fff"/>
 </svg>

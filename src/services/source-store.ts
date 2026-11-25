@@ -1,6 +1,7 @@
 import { classifySource, isBlockedHttpTarget } from '../fetchers';
 import type { AppEnv } from '../lib/env';
 import { KV_KEYS } from '../kv';
+import { PROTOCOL_TYPES, type ProtocolType } from '../subscription';
 
 /**
  * 訂閱來源清單由 KV 管理。
@@ -16,7 +17,7 @@ export class InputTooLongError extends Error {
 }
 
 export class UnsupportedSourceError extends Error {
-	constructor(message = '来源格式不支持，仅接受 http(s)://、inline:、data:') {
+	constructor(message = '来源格式不支持，仅接受 http(s)://、inline:') {
 		super(message);
 		this.name = 'UnsupportedSourceError';
 	}
@@ -30,8 +31,8 @@ export class BlockedSourceError extends Error {
 }
 
 export async function listSources(env: AppEnv): Promise<string[]> {
-	const sources = await env.KV_NAMESPACE.get(KV_KEYS.sources, { type: 'json' }) as string[] | null;
-	return sources ?? [];
+	const sources = await env.KV_NAMESPACE.get(KV_KEYS.sources, { type: 'json' });
+	return Array.isArray(sources) ? (sources as string[]) : [];
 }
 
 /**
@@ -55,4 +56,37 @@ export async function removeSource(env: AppEnv, url: string): Promise<void> {
 	const sources = await listSources(env);
 	const next = sources.filter((source) => source !== url);
 	await env.KV_NAMESPACE.put(KV_KEYS.sources, JSON.stringify(next));
+	const filters = await getSourceFilters(env);
+	if (url in filters) {
+		delete filters[url];
+		await env.KV_NAMESPACE.put(KV_KEYS.sourceFilters, JSON.stringify(filters));
+	}
+}
+
+export type SourceFilters = Record<string, ProtocolType[]>;
+
+// 只保留合法的協議名稱並去重；格式不對的紀錄視為「不過濾」，避免壞資料把來源濾成空。
+function sanitizeTypes(value: unknown): ProtocolType[] {
+	if (!Array.isArray(value)) return [];
+	return PROTOCOL_TYPES.filter((t) => value.includes(t));
+}
+
+export async function getSourceFilters(env: AppEnv): Promise<SourceFilters> {
+	const raw = await env.KV_NAMESPACE.get(KV_KEYS.sourceFilters, { type: 'json' });
+	const result: SourceFilters = {};
+	if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return result;
+	for (const [url, value] of Object.entries(raw)) {
+		const types = sanitizeTypes(value);
+		if (types.length > 0) result[url] = types;
+	}
+	return result;
+}
+
+/** 設定單一來源的協議過濾；空陣列等於清除（不過濾）。 */
+export async function setSourceFilter(env: AppEnv, url: string, types: string[]): Promise<void> {
+	const valid = sanitizeTypes(types);
+	const filters = await getSourceFilters(env);
+	if (valid.length === 0) delete filters[url];
+	else filters[url] = valid;
+	await env.KV_NAMESPACE.put(KV_KEYS.sourceFilters, JSON.stringify(filters));
 }

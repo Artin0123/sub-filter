@@ -9,7 +9,7 @@ const THEME_LABELS = {
 // 與 src/services/source-store.ts 的 MAX_SOURCE_URL_LENGTH 保持一致。
 const MAX_SOURCE_URL_LENGTH = 4096;
 // 後台只接受這幾種來源格式；不符的直接不給連結，避免把 javascript: 之類的輸入渲染成可點元素。
-const SOURCE_URL_PATTERN = /^(https?:\/\/|inline:|data:)/i;
+const SOURCE_URL_PATTERN = /^(https?:\/\/|inline:)/i;
 
 function redirectToLogin() {
 	location.href = '/login-page.html';
@@ -74,9 +74,79 @@ document.getElementById('copy-url').addEventListener('click', async () => {
 	}, 2000);
 });
 
+const PROTOCOLS = ['vmess', 'vless', 'trojan', 'ss', 'hysteria2'];
+
+// 置中浮動視窗：勾選要保留的協議；全不勾 = 不過濾。
+function openFilterDialog(url, current) {
+	const overlay = document.createElement('div');
+	overlay.className = 'modal-overlay';
+	const dialog = document.createElement('div');
+	dialog.className = 'modal card';
+
+	const title = document.createElement('h3');
+	title.className = 'modal-title';
+	title.textContent = '協議過濾';
+	const hint = document.createElement('div');
+	hint.className = 'modal-hint';
+	hint.textContent = '只保留勾選的格式；全部不勾則不過濾。重新整理後生效。';
+	dialog.append(title, hint);
+
+	const boxes = PROTOCOLS.map((p) => {
+		const label = document.createElement('label');
+		label.className = 'modal-option';
+		const cb = document.createElement('input');
+		cb.type = 'checkbox';
+		cb.value = p;
+		cb.checked = current.includes(p);
+		label.append(cb, document.createTextNode(' ' + p));
+		dialog.append(label);
+		return cb;
+	});
+
+	const onKeydown = (e) => {
+		if (e.key === 'Escape') close();
+	};
+	const close = () => {
+		document.removeEventListener('keydown', onKeydown);
+		overlay.remove();
+	};
+	document.addEventListener('keydown', onKeydown);
+	const actions = document.createElement('div');
+	actions.className = 'modal-actions';
+	const save = document.createElement('button');
+	save.textContent = 'Save';
+	const cancel = document.createElement('button');
+	cancel.textContent = 'Cancel';
+	cancel.addEventListener('click', close);
+	save.addEventListener('click', async () => {
+		save.disabled = true;
+		const types = boxes.filter((b) => b.checked).map((b) => b.value).join(',');
+		const r = await fetch('/filters', { method: 'POST', body: new URLSearchParams({ url, types }) });
+		if (r.status === 401) {
+			redirectToLogin();
+			return;
+		}
+		if (!r.ok) {
+			save.disabled = false;
+			alert('儲存失敗 (HTTP ' + r.status + ')');
+			return;
+		}
+		close();
+		loadList();
+	});
+	actions.append(cancel, save);
+	dialog.append(actions);
+
+	overlay.addEventListener('click', (e) => {
+		if (e.target === overlay) close();
+	});
+	overlay.append(dialog);
+	document.body.append(overlay);
+}
+
 async function loadList() {
-	const r = await fetch('/list');
-	if (r.status === 401) {
+	const [r, fr] = await Promise.all([fetch('/list'), fetch('/filters')]);
+	if (r.status === 401 || fr.status === 401) {
 		redirectToLogin();
 		return;
 	}
@@ -85,6 +155,12 @@ async function loadList() {
 		return;
 	}
 	const arr = await r.json();
+	// 讀不到過濾設定時直接報錯，不要讓按鈕假裝「沒有過濾」。
+	if (!fr.ok) {
+		document.getElementById('source-msg').textContent = 'Failed to load filters (HTTP ' + fr.status + ')';
+		return;
+	}
+	const filters = await fr.json();
 	const ul = document.getElementById('sources');
 	ul.innerHTML = '';
 	arr.forEach((u) => {
@@ -111,10 +187,20 @@ async function loadList() {
 			content.append(span);
 		}
 
+		const filterBtn = document.createElement('button');
+		const active = filters[u] || [];
+		filterBtn.textContent = active.length ? 'Filter (' + active.length + ')' : 'Filter';
+		filterBtn.title = active.length ? 'Only keep: ' + active.join(', ') : 'No filter';
+		filterBtn.className = 'source-btn';
+		filterBtn.addEventListener('click', () => openFilterDialog(u, active));
+
 		const btn = document.createElement('button');
 		btn.textContent = 'Remove';
-		btn.className = 'remove-btn';
+		btn.className = 'source-btn';
 		btn.addEventListener('click', async () => {
+			// 瀏覽器的 confirm 對過長文字會自行截斷，這裡先自行以 ... 省略。
+			const shown = u.length > 80 ? u.slice(0, 80) + '...' : u;
+			if (!confirm('確定要刪除此來源嗎？\n\n' + shown)) return;
 			const body = new URLSearchParams({ url: u });
 			const rr = await fetch('/remove', { method: 'POST', body });
 			if (rr.status === 401) {
@@ -124,7 +210,10 @@ async function loadList() {
 			if (rr.ok) loadList();
 		});
 
-		content.append(btn);
+		const actions = document.createElement('div');
+		actions.className = 'source-actions';
+		actions.append(filterBtn, btn);
+		content.append(actions);
 		li.append(content);
 		ul.append(li);
 	});

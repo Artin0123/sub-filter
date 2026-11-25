@@ -5,6 +5,7 @@ import { KV_KEYS } from './kv';
 import { mapWithConcurrency } from './lib/async';
 import type { AppEnv } from './lib/env';
 import { normalizeChunkSize } from './services/config';
+import { getSourceFilters, listSources } from './services/source-store';
 import { maybeDecodeBulkBase64, parseSubscriptionText, parseUriToRecord, safeBase64EncodeUtf8, type NormalizedRecord } from './subscription';
 
 export type RefreshResult = {
@@ -20,6 +21,8 @@ export type RefreshResult = {
 		parsedByScheme: Record<string, number>;
 		failedByScheme: Record<string, number>;
 		duplicates: number;
+		// 被來源協議過濾掉的節點數（已解析成功但不在勾選清單內）。
+		filteredOut: number;
 		chunkLineCounts: number[];
 	};
 };
@@ -53,8 +56,7 @@ async function readExistingEtags(env: AppEnv, keys: string[]): Promise<Map<strin
 }
 
 export async function runUpdate(env: AppEnv): Promise<RefreshResult> {
-	const sources = (await env.KV_NAMESPACE.get(KV_KEYS.sources, { type: 'json' })) as string[] | null;
-	const urls = Array.isArray(sources) ? sources.filter((s) => typeof s === 'string' && s.trim().length > 0) : [];
+	const urls = (await listSources(env)).filter((s) => typeof s === 'string' && s.trim().length > 0);
 	const chunkSize = normalizeChunkSize(await env.KV_NAMESPACE.get(KV_KEYS.chunkSize));
 	const shouldBase64Encode = (await env.KV_NAMESPACE.get(KV_KEYS.base64Encode)) === '1';
 
@@ -67,13 +69,13 @@ export async function runUpdate(env: AppEnv): Promise<RefreshResult> {
 	const fetched = await mapWithConcurrency(urls, SOURCE_CONCURRENCY, (url) => fetchSource(url));
 	let ok = 0;
 	let fail = 0;
-	const texts: string[] = [];
+	const texts: { url: string; text: string }[] = [];
 	const failedSources: { url: string; error: string }[] = [];
 	for (const result of fetched) {
 		// 空內容也是「抓取成功」，只是沒有節點；不可計入 fail。
 		if (result.ok && result.text !== undefined) {
 			ok++;
-			if (result.text) texts.push(result.text);
+			if (result.text) texts.push({ url: result.url, text: result.text });
 		} else {
 			fail++;
 			failedSources.push({ url: result.url, error: result.error ?? `http_${result.status}` });
@@ -85,7 +87,11 @@ export async function runUpdate(env: AppEnv): Promise<RefreshResult> {
 	let linesTotal = 0;
 	const parsedByScheme: Record<string, number> = {};
 	const failedByScheme: Record<string, number> = {};
-	for (const text of texts) {
+	let filteredOut = 0;
+	const filters = await getSourceFilters(env);
+	for (const { url, text } of texts) {
+		// 該來源有設定協議過濾時，只保留勾選的類型；沒設定就全部保留。
+		const allowed = filters[url]?.length ? new Set<string>(filters[url]) : null;
 		const body = maybeDecodeBulkBase64(text);
 		const lines = parseSubscriptionText(body);
 		linesTotal += lines.length;
@@ -93,7 +99,10 @@ export async function runUpdate(env: AppEnv): Promise<RefreshResult> {
 		for (const line of lines) {
 			const scheme = (line.split(':', 1)[0] || '').toLowerCase();
 			const rec = parseUriToRecord(line);
-			if (rec) records.push(rec);
+			if (rec) {
+				if (!allowed || allowed.has(rec.type)) records.push(rec);
+				else filteredOut++;
+			}
 			(rec ? parsedByScheme : failedByScheme)[scheme || 'unknown'] = ((rec ? parsedByScheme : failedByScheme)[scheme || 'unknown'] || 0) + 1;
 		}
 	}
@@ -147,7 +156,7 @@ export async function runUpdate(env: AppEnv): Promise<RefreshResult> {
 	await env.KV_NAMESPACE.put(KV_KEYS.lastUpdatedISO, new Date().toISOString());
 
 	const duplicates = records.length - unique.length;
-	const debugInfo = { linesTotal, parsedByScheme, failedByScheme, duplicates, chunkLineCounts };
+	const debugInfo = { linesTotal, parsedByScheme, failedByScheme, duplicates, filteredOut, chunkLineCounts };
 	await env.KV_NAMESPACE.put(KV_KEYS.lastStats, JSON.stringify(debugInfo));
 
 	// 這個旗標一定要在分塊全部寫成功之後才更新：

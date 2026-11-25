@@ -128,7 +128,8 @@ wrangler pages deploy public --project-name sub-filter
 | `/logout` | POST | 清除 session cookie |
 | `/list` | GET | 來源清單 |
 | `/add` | POST | 新增來源 |
-| `/remove` | POST | 移除來源 |
+| `/remove` | POST | 移除來源（同時清掉它的協議過濾） |
+| `/filters` | GET / POST | 讀取 / 設定各來源的協議過濾（POST 參數 `url`、`types`，逗號分隔） |
 | `/config` | GET / POST | 讀取 / 更新設定 |
 | `/refresh` | POST | 觸發刷新 |
 | `/debug` | GET | 除錯資訊與上次刷新統計 |
@@ -154,8 +155,7 @@ wrangler kv key delete subscription_token --namespace-id=<namespace id> --remote
 支援：
 
 - `https://...` / `http://...`
-- `inline:...`
-- `data:text/plain,...`
+- `inline:...`（後面直接貼單個節點或訂閱內容）
 
 限制：
 
@@ -163,6 +163,14 @@ wrangler kv key delete subscription_token --namespace-id=<namespace id> --remote
 - `http(s)` 來源不可指向 localhost、私有網段、link-local（含雲端 metadata 位址）等保留位址（400 `blocked_source`）
 - 單一來源網址上限 4096 字元
 - 單一來源內容上限 8MB，超過時該來源視為失敗
+
+### 協議過濾
+
+每個來源可在後台按 `Filter` 設定要保留的協議（`vmess` / `vless` / `trojan` / `ss` / `hysteria2`，可複選）：
+
+- 全部不勾（預設）= 不過濾
+- 只對該來源生效，其他來源不受影響
+- 下次刷新才會生效；被過濾掉的節點數記在 `/debug` 的 `filteredOut`
 - 位址檢查只看 hostname，**無法防 DNS rebinding**（網域解析後才指向私有位址）；要完全封死需在 Cloudflare 層加存取規則
 - 每個來源會用掉 1–2 個 subrequest（失敗重試一次），免費方案的單請求上限是 50，
   因此來源數超過約 24 個時部分來源會因平台限制失敗；失敗原因見 `/refresh` 回應的 `failedSources`
