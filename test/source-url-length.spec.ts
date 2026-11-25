@@ -19,7 +19,7 @@ describe('Source URL guard', () => {
 		expect(res.status).toBe(400);
 		const json = (await res.json()) as any;
 		expect(json.error).toBe('input_too_long');
-		expect(String(json.message)).toContain('长');
+		expect(String(json.message)).toContain('too long');
 
 		const sources = await env.KV_NAMESPACE.get('sources');
 		expect(sources).toBe(JSON.stringify([]));

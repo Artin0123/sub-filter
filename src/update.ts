@@ -1,7 +1,7 @@
 import { dedupRecords } from './dedup';
 import { fetchSource } from './fetchers';
 import { sha256Hex } from './hash';
-import { KV_KEYS } from './kv';
+import { KV_KEYS, putIfChanged } from './kv';
 import { mapWithConcurrency } from './lib/async';
 import type { AppEnv } from './lib/env';
 import { normalizeChunkSize } from './services/config';
@@ -121,7 +121,8 @@ export async function runUpdate(env: AppEnv): Promise<RefreshResult> {
 	}
 
 	const newTotal = chunks.length;
-	const oldTotal = parseInt((await env.KV_NAMESPACE.get(KV_KEYS.chunksTotal)) ?? '0', 10) || 0;
+	const oldTotalRaw = await env.KV_NAMESPACE.get(KV_KEYS.chunksTotal);
+	const oldTotal = parseInt(oldTotalRaw ?? '0', 10) || 0;
 
 	// 先分批讀回所有既有 ETag，再決定哪些分塊真的要寫。
 	const etagKeys = chunks.map((_, i) => KV_KEYS.etagI(i + 1));
@@ -152,12 +153,15 @@ export async function runUpdate(env: AppEnv): Promise<RefreshResult> {
 		});
 	}
 
-	await env.KV_NAMESPACE.put(KV_KEYS.chunksTotal, String(newTotal));
-	await env.KV_NAMESPACE.put(KV_KEYS.lastUpdatedISO, new Date().toISOString());
+	// 內容沒變的刷新不應該消耗寫入額度：只有真的變了才寫 chunks_total / last_updated_iso。
+	if (oldTotalRaw !== String(newTotal)) await env.KV_NAMESPACE.put(KV_KEYS.chunksTotal, String(newTotal));
+	if (changedChunks.length > 0 || oldTotal !== newTotal) {
+		await env.KV_NAMESPACE.put(KV_KEYS.lastUpdatedISO, new Date().toISOString());
+	}
 
 	const duplicates = records.length - unique.length;
 	const debugInfo = { linesTotal, parsedByScheme, failedByScheme, duplicates, filteredOut, chunkLineCounts };
-	await env.KV_NAMESPACE.put(KV_KEYS.lastStats, JSON.stringify(debugInfo));
+	await putIfChanged(env.KV_NAMESPACE, KV_KEYS.lastStats, JSON.stringify(debugInfo));
 
 	// 這個旗標一定要在分塊全部寫成功之後才更新：
 	// 若中途失敗就提前翻新，下一次刷新會誤以為「編碼沒變」而不重寫，導致內容永久停在舊編碼。

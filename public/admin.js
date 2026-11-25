@@ -85,10 +85,10 @@ function openFilterDialog(url, current) {
 
 	const title = document.createElement('h3');
 	title.className = 'modal-title';
-	title.textContent = '協議過濾';
+	title.textContent = 'Protocol filter';
 	const hint = document.createElement('div');
 	hint.className = 'modal-hint';
-	hint.textContent = '只保留勾選的格式；全部不勾則不過濾。重新整理後生效。';
+	hint.textContent = 'Keep only the checked protocols. Leave all unchecked to keep everything. Takes effect on the next refresh.';
 	dialog.append(title, hint);
 
 	const boxes = PROTOCOLS.map((p) => {
@@ -128,7 +128,7 @@ function openFilterDialog(url, current) {
 		}
 		if (!r.ok) {
 			save.disabled = false;
-			alert('儲存失敗 (HTTP ' + r.status + ')');
+			alert('Failed to save (HTTP ' + r.status + ')');
 			return;
 		}
 		close();
@@ -200,7 +200,7 @@ async function loadList() {
 		btn.addEventListener('click', async () => {
 			// 瀏覽器的 confirm 對過長文字會自行截斷，這裡先自行以 ... 省略。
 			const shown = u.length > 80 ? u.slice(0, 80) + '...' : u;
-			if (!confirm('確定要刪除此來源嗎？\n\n' + shown)) return;
+			if (!confirm('Remove this source?\n\n' + shown)) return;
 			const body = new URLSearchParams({ url: u });
 			const rr = await fetch('/remove', { method: 'POST', body });
 			if (rr.status === 401) {
@@ -247,7 +247,7 @@ document.getElementById('add').addEventListener('click', async () => {
 	if (!url) return;
 	const msg = document.getElementById('source-msg');
 	if (url.length > MAX_SOURCE_URL_LENGTH) {
-		msg.textContent = '来源地址过长（上限 ' + MAX_SOURCE_URL_LENGTH + ' 字符）';
+		msg.textContent = 'Source URL is too long (max ' + MAX_SOURCE_URL_LENGTH + ' characters)';
 		return;
 	}
 	msg.textContent = '';

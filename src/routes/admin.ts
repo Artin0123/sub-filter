@@ -88,7 +88,7 @@ export async function handleRefresh(request: Request, env: AppEnv): Promise<Resp
 		return jsonResponse(await refreshSubscriptions(env));
 	} catch (e) {
 		if (e instanceof RefreshInProgressError) {
-			return jsonResponse({ error: 'refresh_in_progress', message: '上一次刷新還在進行中' }, 409);
+			return jsonResponse({ error: 'refresh_in_progress', message: 'A refresh is already in progress' }, 409);
 		}
 		// 內部錯誤細節只進 log，不回給用戶端。
 		console.error('refresh_failed', e);

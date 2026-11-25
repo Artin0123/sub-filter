@@ -1,5 +1,5 @@
 import type { AppEnv } from '../lib/env';
-import { KV_KEYS } from '../kv';
+import { KV_KEYS, putIfChanged } from '../kv';
 import { getOrCreateSubscriptionToken } from './session';
 
 export const CHUNK_SIZE_DEFAULT = 400;
@@ -48,6 +48,6 @@ export async function getAdminConfig(env: AppEnv): Promise<AdminConfig> {
 }
 
 export async function updateAdminConfig(env: AppEnv, chunkSize: number, base64Encode: boolean): Promise<void> {
-	await env.KV_NAMESPACE.put(KV_KEYS.chunkSize, String(chunkSize));
-	await env.KV_NAMESPACE.put(KV_KEYS.base64Encode, base64Encode ? '1' : '0');
+	await putIfChanged(env.KV_NAMESPACE, KV_KEYS.chunkSize, String(chunkSize));
+	await putIfChanged(env.KV_NAMESPACE, KV_KEYS.base64Encode, base64Encode ? '1' : '0');
 }

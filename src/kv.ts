@@ -17,3 +17,13 @@ export const KV_KEYS = {
 	// 刷新鎖（盡力而為，KV 為最終一致性），避免 cron 與手動刷新同時寫入。
 	refreshStartedAt: 'refresh_started_at',
 } as const;
+
+/**
+ * 值沒變就不寫。KV 免費額度每天只有 1000 次寫入，讀取則寬鬆得多（10 萬次），
+ * 所以「先讀再比對」比無條件覆寫划算。回傳是否真的寫入。
+ */
+export async function putIfChanged(kv: KVNamespace, key: string, value: string): Promise<boolean> {
+	if ((await kv.get(key)) === value) return false;
+	await kv.put(key, value);
+	return true;
+}

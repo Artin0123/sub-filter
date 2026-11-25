@@ -10,21 +10,21 @@ import { PROTOCOL_TYPES, type ProtocolType } from '../subscription';
 export const MAX_SOURCE_URL_LENGTH = 4096;
 
 export class InputTooLongError extends Error {
-	constructor(message = '来源地址过长（上限 4096 字符）') {
+	constructor(message = 'Source URL is too long (max 4096 characters)') {
 		super(message);
 		this.name = 'InputTooLongError';
 	}
 }
 
 export class UnsupportedSourceError extends Error {
-	constructor(message = '来源格式不支持，仅接受 http(s)://、inline:') {
+	constructor(message = 'Unsupported source. Only http(s):// and inline: are accepted') {
 		super(message);
 		this.name = 'UnsupportedSourceError';
 	}
 }
 
 export class BlockedSourceError extends Error {
-	constructor(message = '来源指向内网或保留地址，已拒绝') {
+	constructor(message = 'Source points to a private or reserved address and was rejected') {
 		super(message);
 		this.name = 'BlockedSourceError';
 	}
@@ -86,6 +86,8 @@ export async function getSourceFilters(env: AppEnv): Promise<SourceFilters> {
 export async function setSourceFilter(env: AppEnv, url: string, types: string[]): Promise<void> {
 	const valid = sanitizeTypes(types);
 	const filters = await getSourceFilters(env);
+	const before = JSON.stringify(filters[url] ?? []);
+	if (before === JSON.stringify(valid)) return; // 沒變就不寫，省 KV 寫入額度
 	if (valid.length === 0) delete filters[url];
 	else filters[url] = valid;
 	await env.KV_NAMESPACE.put(KV_KEYS.sourceFilters, JSON.stringify(filters));
